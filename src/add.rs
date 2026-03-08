@@ -1,0 +1,560 @@
+use anyhow::{Context as _, Result};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::terminal;
+use std::io::{self, Write};
+use std::path::Path;
+
+use crate::config;
+
+/// Parameters for adding a new abbreviation
+pub struct AddParams {
+    pub keyword: String,
+    pub expansion: String,
+    pub global: bool,
+    pub evaluate: bool,
+    pub allow_conflict: bool,
+    pub context_lbuffer: Option<String>,
+    pub context_rbuffer: Option<String>,
+}
+
+/// Append a new abbreviation entry to the config file
+pub fn append_to_config(path: &Path, params: &AddParams) -> Result<()> {
+    // Validate the new entry by constructing a minimal TOML and parsing it
+    validate_params(params)?;
+
+    // Check for duplicate keywords in existing config
+    if path.exists() {
+        let existing = config::load(path)?;
+        if let Some(dup) = existing.abbr.iter().find(|a| a.keyword == params.keyword) {
+            // If it has exactly the same context, it's a duplicate
+            let new_has_context = params.context_lbuffer.is_some() || params.context_rbuffer.is_some();
+            let dup_has_context = dup.context.is_some();
+            if !new_has_context && !dup_has_context {
+                anyhow::bail!(
+                    "keyword \"{}\" already exists in config (expansion: \"{}\")",
+                    params.keyword,
+                    dup.expansion
+                );
+            }
+        }
+    }
+
+    let entry = build_toml_entry(params);
+
+    // Append to file
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to open config file: {}", path.display()))?;
+
+    // Ensure we start on a new line
+    if path.exists() {
+        let content = std::fs::read_to_string(path)?;
+        if !content.is_empty() && !content.ends_with('\n') {
+            writeln!(file)?;
+        }
+    }
+
+    write!(file, "{}", entry)?;
+
+    // Verify the whole config is still valid after appending
+    config::load(path).with_context(|| "config validation failed after adding abbreviation")?;
+
+    Ok(())
+}
+
+fn validate_params(params: &AddParams) -> Result<()> {
+    if params.keyword.is_empty() {
+        anyhow::bail!("keyword must not be empty");
+    }
+    if params.keyword.contains(' ') {
+        anyhow::bail!("keyword must not contain spaces");
+    }
+    if params.expansion.is_empty() {
+        anyhow::bail!("expansion must not be empty");
+    }
+    if let Some(ref pat) = params.context_lbuffer {
+        regex::Regex::new(pat)
+            .with_context(|| format!("invalid context.lbuffer regex: {}", pat))?;
+    }
+    if let Some(ref pat) = params.context_rbuffer {
+        regex::Regex::new(pat)
+            .with_context(|| format!("invalid context.rbuffer regex: {}", pat))?;
+    }
+    Ok(())
+}
+
+fn build_toml_entry(params: &AddParams) -> String {
+    let mut entry = String::new();
+    entry.push_str("\n[[abbr]]\n");
+    entry.push_str(&format!("keyword = {}\n", toml_quote(&params.keyword)));
+    entry.push_str(&format!("expansion = {}\n", toml_quote(&params.expansion)));
+
+    if params.global {
+        entry.push_str("global = true\n");
+    }
+    if params.evaluate {
+        entry.push_str("evaluate = true\n");
+    }
+    if params.allow_conflict {
+        entry.push_str("allow_conflict = true\n");
+    }
+    if let Some(ref pat) = params.context_lbuffer {
+        entry.push_str(&format!("context.lbuffer = {}\n", toml_quote(pat)));
+    }
+    if let Some(ref pat) = params.context_rbuffer {
+        entry.push_str(&format!("context.rbuffer = {}\n", toml_quote(pat)));
+    }
+
+    entry
+}
+
+/// Quote a string for TOML, using basic or literal string as appropriate
+fn toml_quote(s: &str) -> String {
+    // Use toml crate's serializer for correct escaping
+    toml::Value::String(s.to_string()).to_string()
+}
+
+/// Run interactive prompt to collect abbreviation parameters
+pub fn interactive_prompt() -> Result<AddParams> {
+    let keyword = prompt_required("keyword")?;
+    let expansion = prompt_required("expansion")?;
+
+    let abbr_type = prompt_select(
+        "type",
+        &["regular", "global", "context"],
+    )?;
+
+    let global = abbr_type == "global";
+
+    let (context_lbuffer, context_rbuffer) = if abbr_type == "context" {
+        let lb = prompt_optional("context.lbuffer (regex, Enter to skip)")?;
+        let rb = prompt_optional("context.rbuffer (regex, Enter to skip)")?;
+        (lb, rb)
+    } else {
+        (None, None)
+    };
+
+    let evaluate = prompt_confirm("evaluate (run as command)?", false)?;
+    let allow_conflict = prompt_confirm("allow conflict with PATH commands?", false)?;
+
+    Ok(AddParams {
+        keyword,
+        expansion,
+        global,
+        evaluate,
+        allow_conflict,
+        context_lbuffer,
+        context_rbuffer,
+    })
+}
+
+/// Prompt for a required string input
+fn prompt_required(label: &str) -> Result<String> {
+    loop {
+        eprint!("  {} > ", label);
+        io::stderr().flush()?;
+        let input = read_line()?;
+        let trimmed = input.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+        eprintln!("  (required)");
+    }
+}
+
+/// Prompt for an optional string input
+fn prompt_optional(label: &str) -> Result<Option<String>> {
+    eprint!("  {} > ", label);
+    io::stderr().flush()?;
+    let input = read_line()?;
+    let trimmed = input.trim().to_string();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed))
+    }
+}
+
+/// Prompt for a yes/no confirmation using crossterm key events
+fn prompt_confirm(label: &str, default: bool) -> Result<bool> {
+    let hint = if default { "Y/n" } else { "y/N" };
+    eprint!("  {} [{}] > ", label, hint);
+    io::stderr().flush()?;
+
+    terminal::enable_raw_mode()?;
+    let result = loop {
+        if let Event::Key(key_event) = event::read()? {
+            if key_event.kind != crossterm::event::KeyEventKind::Press {
+                continue;
+            }
+            match key_event.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    break Ok(true);
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') => {
+                    break Ok(false);
+                }
+                KeyCode::Enter => {
+                    break Ok(default);
+                }
+                KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                    break Err(anyhow::anyhow!("cancelled"));
+                }
+                _ => continue,
+            }
+        }
+    };
+    terminal::disable_raw_mode()?;
+
+    match &result {
+        Ok(true) => eprintln!("yes"),
+        Ok(false) => eprintln!("no"),
+        Err(_) => eprintln!(),
+    }
+
+    result
+}
+
+/// Prompt for selecting one option from a list using crossterm arrow keys
+fn prompt_select(label: &str, options: &[&str]) -> Result<String> {
+    eprintln!("  {} (↑↓ to select, Enter to confirm):", label);
+
+    let mut selected: usize = 0;
+    print_select_options(options, selected);
+
+    terminal::enable_raw_mode()?;
+    let result = loop {
+        if let Event::Key(key_event) = event::read()? {
+            if key_event.kind != crossterm::event::KeyEventKind::Press {
+                continue;
+            }
+            match key_event.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if selected > 0 {
+                        selected -= 1;
+                    }
+                    clear_select_lines(options.len());
+                    print_select_options(options, selected);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if selected < options.len() - 1 {
+                        selected += 1;
+                    }
+                    clear_select_lines(options.len());
+                    print_select_options(options, selected);
+                }
+                KeyCode::Enter => {
+                    break Ok(options[selected].to_string());
+                }
+                KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                    break Err(anyhow::anyhow!("cancelled"));
+                }
+                _ => continue,
+            }
+        }
+    };
+    terminal::disable_raw_mode()?;
+
+    result
+}
+
+fn print_select_options(options: &[&str], selected: usize) {
+    for (i, opt) in options.iter().enumerate() {
+        let marker = if i == selected { "▸" } else { " " };
+        eprintln!("    {} {}", marker, opt);
+    }
+}
+
+fn clear_select_lines(count: usize) {
+    // Move cursor up and clear each line
+    for _ in 0..count {
+        eprint!("\x1b[A\x1b[2K");
+    }
+}
+
+/// Read a line from stdin (used for text input prompts)
+fn read_line() -> Result<String> {
+    let mut buf = String::new();
+    io::stdin()
+        .read_line(&mut buf)
+        .context("failed to read input")?;
+    Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn test_build_toml_entry_minimal() {
+        let params = AddParams {
+            keyword: "g".to_string(),
+            expansion: "git".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+        let entry = build_toml_entry(&params);
+        assert!(entry.contains("[[abbr]]"));
+        assert!(entry.contains("keyword = \"g\""));
+        assert!(entry.contains("expansion = \"git\""));
+        assert!(!entry.contains("global"));
+        assert!(!entry.contains("evaluate"));
+        assert!(!entry.contains("allow_conflict"));
+        assert!(!entry.contains("context"));
+    }
+
+    #[test]
+    fn test_build_toml_entry_full() {
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main --branch".to_string(),
+            global: true,
+            evaluate: true,
+            allow_conflict: true,
+            context_lbuffer: Some("^git (checkout|switch)".to_string()),
+            context_rbuffer: Some(".*$".to_string()),
+        };
+        let entry = build_toml_entry(&params);
+        assert!(entry.contains("global = true"));
+        assert!(entry.contains("evaluate = true"));
+        assert!(entry.contains("allow_conflict = true"));
+        assert!(entry.contains("context.lbuffer = \"^git (checkout|switch)\""));
+        assert!(entry.contains("context.rbuffer = \".*$\""));
+    }
+
+    #[test]
+    fn test_build_toml_entry_escaping() {
+        let params = AddParams {
+            keyword: "gc".to_string(),
+            expansion: "git commit -m '{{message}}'".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+        let entry = build_toml_entry(&params);
+        // The toml crate should handle escaping of single quotes
+        assert!(entry.contains("keyword = \"gc\""));
+        assert!(entry.contains("expansion = \"git commit -m '{{message}}'\""));
+    }
+
+    #[test]
+    fn test_validate_params_valid() {
+        let params = AddParams {
+            keyword: "g".to_string(),
+            expansion: "git".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+        assert!(validate_params(&params).is_ok());
+    }
+
+    #[test]
+    fn test_validate_params_empty_keyword() {
+        let params = AddParams {
+            keyword: "".to_string(),
+            expansion: "git".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+        let err = validate_params(&params).unwrap_err();
+        assert!(err.to_string().contains("keyword must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_params_keyword_with_space() {
+        let params = AddParams {
+            keyword: "g c".to_string(),
+            expansion: "git commit".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+        let err = validate_params(&params).unwrap_err();
+        assert!(err.to_string().contains("must not contain spaces"));
+    }
+
+    #[test]
+    fn test_validate_params_empty_expansion() {
+        let params = AddParams {
+            keyword: "g".to_string(),
+            expansion: "".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+        let err = validate_params(&params).unwrap_err();
+        assert!(err.to_string().contains("expansion must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_params_invalid_lbuffer_regex() {
+        let params = AddParams {
+            keyword: "g".to_string(),
+            expansion: "git".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: Some("[invalid".to_string()),
+            context_rbuffer: None,
+        };
+        let err = validate_params(&params).unwrap_err();
+        assert!(err.to_string().contains("invalid context.lbuffer regex"));
+    }
+
+    #[test]
+    fn test_validate_params_invalid_rbuffer_regex() {
+        let params = AddParams {
+            keyword: "g".to_string(),
+            expansion: "git".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: Some("[invalid".to_string()),
+        };
+        let err = validate_params(&params).unwrap_err();
+        assert!(err.to_string().contains("invalid context.rbuffer regex"));
+    }
+
+    #[test]
+    fn test_toml_quote_simple() {
+        assert_eq!(toml_quote("git"), "\"git\"");
+    }
+
+    #[test]
+    fn test_toml_quote_with_special_chars() {
+        let quoted = toml_quote("git commit -m '{{message}}'");
+        assert!(quoted.starts_with('"') || quoted.starts_with('\''));
+    }
+
+    #[test]
+    fn test_append_to_config_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("brv.toml");
+
+        // Create a minimal config first
+        std::fs::write(&path, "[settings]\nstrict = false\n").unwrap();
+
+        let params = AddParams {
+            keyword: "g".to_string(),
+            expansion: "git".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let mut content = String::new();
+        std::fs::File::open(&path)
+            .unwrap()
+            .read_to_string(&mut content)
+            .unwrap();
+
+        assert!(content.contains("[[abbr]]"));
+        assert!(content.contains("keyword = \"g\""));
+        assert!(content.contains("expansion = \"git\""));
+
+        // Verify the config is still parseable
+        config::parse(&content).unwrap();
+    }
+
+    #[test]
+    fn test_append_to_config_duplicate_keyword() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("brv.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "g"
+expansion = "git"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        let params = AddParams {
+            keyword: "g".to_string(),
+            expansion: "git status".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        let err = append_to_config(&path, &params).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_append_to_config_global_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("brv.toml");
+
+        std::fs::write(&path, "[settings]\nstrict = false\n").unwrap();
+
+        let params = AddParams {
+            keyword: "NE".to_string(),
+            expansion: "2>/dev/null".to_string(),
+            global: true,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("global = true"));
+
+        config::parse(&content).unwrap();
+    }
+
+    #[test]
+    fn test_append_to_config_context_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("brv.toml");
+
+        std::fs::write(&path, "[settings]\nstrict = false\n").unwrap();
+
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main --branch".to_string(),
+            global: false,
+            evaluate: false,
+            allow_conflict: false,
+            context_lbuffer: Some("^git (checkout|switch)".to_string()),
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("context.lbuffer"));
+
+        let config = config::parse(&content).unwrap();
+        assert!(config.abbr[0].context.is_some());
+    }
+}

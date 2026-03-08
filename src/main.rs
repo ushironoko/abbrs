@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use brv::{cache, compiler, config, expand, output, placeholder};
+use brv::{add, cache, compiler, config, expand, output, placeholder};
 
 #[derive(Parser, Debug)]
 #[command(name = "brv")]
@@ -72,6 +72,41 @@ enum Commands {
 
     /// Generate config file template
     Init,
+
+    /// Add a new abbreviation to config
+    Add {
+        /// Keyword to abbreviate (if omitted, interactive mode)
+        #[arg(value_name = "KEYWORD")]
+        keyword: Option<String>,
+
+        /// Expansion text
+        #[arg(value_name = "EXPANSION")]
+        expansion: Option<String>,
+
+        /// Register as global abbreviation
+        #[arg(long, default_value = "false")]
+        global: bool,
+
+        /// Run expansion as command (evaluate mode)
+        #[arg(long, default_value = "false")]
+        evaluate: bool,
+
+        /// Allow conflict with PATH commands
+        #[arg(long, default_value = "false")]
+        allow_conflict: bool,
+
+        /// Context lbuffer regex pattern
+        #[arg(long)]
+        context_lbuffer: Option<String>,
+
+        /// Context rbuffer regex pattern
+        #[arg(long)]
+        context_rbuffer: Option<String>,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -89,6 +124,16 @@ fn main() -> Result<()> {
         Commands::List { config: cfg } => cmd_list(cfg),
         Commands::Check { config: cfg } => cmd_check(cfg),
         Commands::Init => cmd_init(),
+        Commands::Add {
+            keyword,
+            expansion,
+            global,
+            evaluate,
+            allow_conflict,
+            context_lbuffer,
+            context_rbuffer,
+            config: cfg,
+        } => cmd_add(keyword, expansion, global, evaluate, allow_conflict, context_lbuffer, context_rbuffer, cfg),
     }
 }
 
@@ -263,6 +308,53 @@ fn cmd_check(cfg: Option<PathBuf>) -> Result<()> {
 
     let count = compiler::check(&config_path)?;
     eprintln!("✓ config is valid ({} abbreviation(s))", count);
+    Ok(())
+}
+
+fn cmd_add(
+    keyword: Option<String>,
+    expansion: Option<String>,
+    global: bool,
+    evaluate: bool,
+    allow_conflict: bool,
+    context_lbuffer: Option<String>,
+    context_rbuffer: Option<String>,
+    cfg: Option<PathBuf>,
+) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "config file not found: {}\nrun `brv init` to generate a template",
+            config_path.display()
+        );
+    }
+
+    let params = match (keyword, expansion) {
+        (Some(kw), Some(exp)) => add::AddParams {
+            keyword: kw,
+            expansion: exp,
+            global,
+            evaluate,
+            allow_conflict,
+            context_lbuffer,
+            context_rbuffer,
+        },
+        (None, None) => {
+            eprintln!("brv add - interactive mode\n");
+            add::interactive_prompt()?
+        }
+        _ => {
+            anyhow::bail!("both KEYWORD and EXPANSION are required for non-interactive mode\nusage: brv add <KEYWORD> <EXPANSION> [OPTIONS]\n       brv add  (interactive mode)");
+        }
+    };
+
+    add::append_to_config(&config_path, &params)?;
+    eprintln!(
+        "✓ added: {} → {}",
+        params.keyword, params.expansion
+    );
+
     Ok(())
 }
 

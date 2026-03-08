@@ -1,3 +1,4 @@
+pub mod add;
 pub mod cache;
 pub mod compiler;
 pub mod config;
