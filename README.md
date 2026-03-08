@@ -142,11 +142,46 @@ The zsh integration sets up three key bindings:
 | Enter | Expand abbreviation, then execute |
 | Tab | Jump to next `{{placeholder}}` (falls back to normal completion) |
 
+## Adding Abbreviations from the CLI
+
+Instead of editing `brv.toml` by hand, you can use `brv add`:
+
+### Non-interactive
+
+```bash
+brv add g "git"
+brv add gc "git commit -m '{{message}}'" --global
+brv add main "main --branch" --context-lbuffer "^git (checkout|switch) "
+brv add TODAY "date +%Y-%m-%d" --evaluate --global
+brv add gs "git status --short" --allow-conflict
+```
+
+| Flag | Description |
+|---|---|
+| `--global` | Register as a global abbreviation |
+| `--evaluate` | Run expansion as a shell command |
+| `--allow-conflict` | Allow conflicts with PATH commands |
+| `--context-lbuffer <REGEX>` | Left-buffer regex for context matching |
+| `--context-rbuffer <REGEX>` | Right-buffer regex for context matching |
+| `--config <PATH>` | Use a custom config file path |
+
+### Interactive
+
+Run `brv add` without arguments to enter interactive mode:
+
+```bash
+brv add
+```
+
+You will be prompted for the keyword, expansion, type (regular / global / context), and other options.
+
 ## Commands
 
 | Command | Description |
 |---|---|
 | `brv init` | Generate a config template at `~/.config/brv/brv.toml` |
+| `brv add` | Add an abbreviation interactively |
+| `brv add <keyword> <expansion>` | Add an abbreviation with options |
 | `brv compile` | Validate config, detect conflicts, and generate binary cache |
 | `brv compile --strict` | Treat suffix conflicts as errors |
 | `brv check` | Validate config syntax without compiling |
