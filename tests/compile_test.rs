@@ -33,7 +33,7 @@ expansion = "git commit"
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .assert()
         .success()
-        .stderr(predicate::str::contains("2 件"));
+        .stderr(predicate::str::contains("compiled 2 abbreviation(s)"));
 }
 
 #[test]
@@ -53,7 +53,7 @@ expansion = "custom_cd"
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .assert()
         .failure()
-        .stderr(predicate::str::contains("ビルトイン"));
+        .stderr(predicate::str::contains("builtin"));
 }
 
 #[test]
@@ -94,7 +94,7 @@ expansion = "git"
         .assert()
         .success();
 
-    // キャッシュファイルが生成されたことを確認
+    // Verify cache file was generated
     let cache_dir = dir.path().join("cache").join("brv");
     assert!(cache_dir.join("brv.cache").exists());
 }
@@ -105,5 +105,5 @@ fn test_compile_missing_config() {
         .args(["compile", "--config", "/nonexistent/brv.toml"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("見つかりません"));
+        .stderr(predicate::str::contains("not found"));
 }

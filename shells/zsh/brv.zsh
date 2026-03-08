@@ -2,7 +2,7 @@
 # Source this file in your .zshrc:
 #   source /path/to/brv.zsh
 
-# Space キーで abbreviation 展開
+# Expand abbreviation on Space key
 brv-expand-space() {
   local -a out
   out=( "${(f)$(brv expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
@@ -17,7 +17,7 @@ brv-expand-space() {
       fi
       ;;
     evaluate)
-      # コマンド評価
+      # Command evaluation
       local result
       result=$(eval "$out[2]" 2>/dev/null)
       if [[ -n $result ]]; then
@@ -28,9 +28,9 @@ brv-expand-space() {
       fi
       ;;
     stale_cache)
-      # キャッシュが古い場合は再コンパイル
+      # Recompile if cache is stale
       brv compile 2>/dev/null
-      # 再試行
+      # Retry
       out=( "${(f)$(brv expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
       if [[ $out[1] == "success" && -n $out[2] ]]; then
         BUFFER=$out[2]
@@ -45,7 +45,7 @@ brv-expand-space() {
   esac
 }
 
-# Enter キーで abbreviation 展開 + 実行
+# Expand abbreviation on Enter key and execute
 brv-expand-accept() {
   local -a out
   out=( "${(f)$(brv expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
@@ -75,7 +75,7 @@ brv-expand-accept() {
   zle accept-line
 }
 
-# Tab キーでプレースホルダージャンプ
+# Jump to next placeholder on Tab key
 brv-next-placeholder() {
   local -a out
   out=( "${(f)$(brv next-placeholder --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
@@ -83,17 +83,17 @@ brv-next-placeholder() {
     BUFFER=$out[2]
     CURSOR=$out[3]
   else
-    # プレースホルダーがなければ通常の Tab 補完
+    # Fall back to normal tab completion if no placeholder
     zle expand-or-complete
   fi
 }
 
-# ウィジェット登録
+# Register widgets
 zle -N brv-expand-space
 zle -N brv-expand-accept
 zle -N brv-next-placeholder
 
-# キーバインド
+# Key bindings
 bindkey " " brv-expand-space
 bindkey "^M" brv-expand-accept
 bindkey "^I" brv-next-placeholder

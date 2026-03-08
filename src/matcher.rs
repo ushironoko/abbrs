@@ -2,7 +2,7 @@ use crate::config::Abbreviation;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
-/// コンパイル済み abbreviation
+/// Compiled abbreviation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledAbbr {
     pub keyword: String,
@@ -13,14 +13,14 @@ pub struct CompiledAbbr {
     pub rbuffer_pattern: Option<String>,
 }
 
-/// HashMap ベースのマッチングエンジン
+/// HashMap-based matching engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Matcher {
-    /// コマンド位置専用 abbreviation (keyword → compiled abbreviations)
+    /// Command-position-only abbreviations (keyword -> compiled abbreviations)
     pub regular: FxHashMap<String, Vec<CompiledAbbr>>,
-    /// グローバル abbreviation (keyword → compiled abbreviations)
+    /// Global abbreviations (keyword -> compiled abbreviations)
     pub global: FxHashMap<String, Vec<CompiledAbbr>>,
-    /// コンテキスト付き abbreviation (正規表現マッチが必要)
+    /// Contextual abbreviations (require regex matching)
     pub contextual: Vec<CompiledAbbr>,
 }
 
@@ -40,7 +40,7 @@ impl Default for Matcher {
     }
 }
 
-/// 設定から Matcher を構築
+/// Build Matcher from config
 pub fn build(abbreviations: &[Abbreviation]) -> Matcher {
     let mut matcher = Matcher::new();
 
@@ -55,7 +55,7 @@ pub fn build(abbreviations: &[Abbreviation]) -> Matcher {
         };
 
         if compiled.lbuffer_pattern.is_some() || compiled.rbuffer_pattern.is_some() {
-            // コンテキスト付きは別リストに格納
+            // Store contextual entries in separate list
             matcher.contextual.push(compiled);
         } else if abbr.global {
             matcher
@@ -75,7 +75,7 @@ pub fn build(abbreviations: &[Abbreviation]) -> Matcher {
     matcher
 }
 
-/// regular マップからキーワードで検索 (O(1))
+/// Look up keyword in regular map (O(1))
 pub fn lookup_regular<'a>(matcher: &'a Matcher, keyword: &str) -> Option<&'a CompiledAbbr> {
     matcher
         .regular
@@ -83,7 +83,7 @@ pub fn lookup_regular<'a>(matcher: &'a Matcher, keyword: &str) -> Option<&'a Com
         .and_then(|abbrs| abbrs.first())
 }
 
-/// global マップからキーワードで検索 (O(1))
+/// Look up keyword in global map (O(1))
 pub fn lookup_global<'a>(matcher: &'a Matcher, keyword: &str) -> Option<&'a CompiledAbbr> {
     matcher.global.get(keyword).and_then(|abbrs| abbrs.first())
 }

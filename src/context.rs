@@ -1,8 +1,8 @@
 use crate::matcher::CompiledAbbr;
 use regex::Regex;
 
-/// コンテキスト条件をチェック
-/// lbuffer/rbuffer の正規表現パターンに対してマッチするか判定
+/// Check context conditions
+/// Match against lbuffer/rbuffer regex patterns
 pub fn matches_context(abbr: &CompiledAbbr, lbuffer: &str, rbuffer: &str) -> bool {
     if let Some(ref pattern) = abbr.lbuffer_pattern {
         match Regex::new(pattern) {
@@ -29,7 +29,7 @@ pub fn matches_context(abbr: &CompiledAbbr, lbuffer: &str, rbuffer: &str) -> boo
     true
 }
 
-/// コンテキスト付き abbreviation からマッチするものを検索
+/// Find matching contextual abbreviation
 pub fn find_contextual_match<'a>(
     contextual: &'a [CompiledAbbr],
     keyword: &str,

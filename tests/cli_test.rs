@@ -46,7 +46,7 @@ expansion = "git"
         .args(["check", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
-        .stderr(predicate::str::contains("有効です"));
+        .stderr(predicate::str::contains("config is valid"));
 }
 
 #[test]
@@ -99,7 +99,7 @@ global = true
         .stdout(predicate::str::contains("g"))
         .stdout(predicate::str::contains("NE"))
         .stdout(predicate::str::contains("global"))
-        .stdout(predicate::str::contains("合計: 2 件"));
+        .stdout(predicate::str::contains("Total: 2"));
 }
 
 #[test]
@@ -111,5 +111,5 @@ fn test_list_empty() {
         .args(["list", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
-        .stdout(predicate::str::contains("登録されていません"));
+        .stdout(predicate::str::contains("no abbreviations registered"));
 }

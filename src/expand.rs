@@ -3,21 +3,21 @@ use crate::matcher::{self, CompiledAbbr, Matcher};
 use crate::output::ExpandOutput;
 use crate::placeholder;
 
-/// 展開入力
+/// Expansion input
 pub struct ExpandInput {
     pub lbuffer: String,
     pub rbuffer: String,
 }
 
-/// lbuffer からキーワードを抽出
-/// lbuffer の末尾のトークン(スペースで区切られた最後の単語)をキーワードとして返す
+/// Extract keyword from lbuffer
+/// Returns the trailing token (last word delimited by space) of lbuffer as the keyword
 fn extract_keyword(lbuffer: &str) -> Option<(&str, &str)> {
     let trimmed = lbuffer.trim_end();
     if trimmed.is_empty() {
         return None;
     }
 
-    // 末尾のトークンを取得
+    // Get the trailing token
     if let Some(space_pos) = trimmed.rfind(' ') {
         let keyword = &trimmed[space_pos + 1..];
         let prefix = &trimmed[..space_pos + 1];
@@ -27,39 +27,39 @@ fn extract_keyword(lbuffer: &str) -> Option<(&str, &str)> {
             Some((prefix, keyword))
         }
     } else {
-        // スペースなし = lbuffer 全体がキーワード
+        // No space = entire lbuffer is the keyword
         Some(("", trimmed))
     }
 }
 
-/// コマンド位置かどうかを判定
-/// lbuffer にスペースが含まれていない場合はコマンド位置
+/// Determine if position is command position
+/// If lbuffer contains no spaces, it is a command position
 fn is_command_position(prefix: &str) -> bool {
     prefix.trim().is_empty()
 }
 
-/// 展開を実行
+/// Perform expansion
 pub fn expand(input: &ExpandInput, matcher_data: &Matcher) -> ExpandOutput {
     let Some((prefix, keyword)) = extract_keyword(&input.lbuffer) else {
         return ExpandOutput::NoMatch;
     };
 
-    // 1. コンテキスト付き abbreviation を最優先で検索
-    // lbuffer からキーワードを除いた部分をコンテキストとして使う
+    // 1. Search contextual abbreviations with highest priority
+    // Use the part of lbuffer excluding the keyword as context
     if let Some(abbr) =
         context::find_contextual_match(&matcher_data.contextual, keyword, prefix, &input.rbuffer)
     {
         return build_output(prefix, abbr, &input.rbuffer);
     }
 
-    // 2. コマンド位置の場合、regular abbreviation を検索
+    // 2. If in command position, search regular abbreviations
     if is_command_position(prefix) {
         if let Some(abbr) = matcher::lookup_regular(matcher_data, keyword) {
             return build_output(prefix, abbr, &input.rbuffer);
         }
     }
 
-    // 3. グローバル abbreviation を検索 (位置を問わず)
+    // 3. Search global abbreviations (regardless of position)
     if let Some(abbr) = matcher::lookup_global(matcher_data, keyword) {
         return build_output(prefix, abbr, &input.rbuffer);
     }
@@ -78,7 +78,7 @@ fn build_output(prefix: &str, abbr: &CompiledAbbr, rbuffer: &str) -> ExpandOutpu
 
     let expansion = &abbr.expansion;
 
-    // プレースホルダー処理
+    // Placeholder processing
     let new_lbuffer = format!("{}{}", prefix, expansion);
     let full_buffer = format!("{}{}", new_lbuffer, rbuffer);
 
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_extract_keyword_with_trailing_space() {
-        // 末尾がスペースのみの場合、trim_end でスペースが消えて最後のトークンが返る
+        // When trailing is only spaces, trim_end removes them and returns the last token
         let (prefix, keyword) = extract_keyword("git commit ").unwrap();
         assert_eq!(prefix, "git ");
         assert_eq!(keyword, "commit");
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn test_expand_regular_not_command_position() {
         let matcher = build_test_matcher();
-        // "g" は regular なので、コマンド位置でないとマッチしない
+        // "g" is regular, so it only matches in command position
         let input = ExpandInput {
             lbuffer: "echo g".to_string(),
             rbuffer: "".to_string(),
@@ -274,8 +274,8 @@ mod tests {
             lbuffer: "git commit main".to_string(),
             rbuffer: "".to_string(),
         };
-        // "main" はコンテキスト付きだが、lbuffer が "git commit " なのでマッチしない
-        // regular にも "main" はないのでマッチしない
+        // "main" has context, but lbuffer is "git commit " so it doesn't match
+        // "main" is also not in regular, so no match
         match expand(&input, &matcher) {
             ExpandOutput::NoMatch => {}
             other => panic!("Expected NoMatch, got {:?}", other),

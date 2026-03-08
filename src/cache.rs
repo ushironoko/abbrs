@@ -5,10 +5,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-/// キャッシュフォーマットバージョン
+/// Cache format version
 const CACHE_VERSION: u32 = 1;
 
-/// バイナリキャッシュ
+/// Binary cache
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CompiledCache {
     pub version: u32,
@@ -16,17 +16,17 @@ pub struct CompiledCache {
     pub matcher: Matcher,
 }
 
-/// 設定ファイルのハッシュを計算
+/// Compute hash of config file content
 pub fn hash_config(content: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);
     hasher.finish()
 }
 
-/// キャッシュを書き出し
+/// Write cache to file
 pub fn write(output_path: &Path, matcher: &Matcher, config_path: &Path) -> Result<()> {
     let config_content = std::fs::read_to_string(config_path)
-        .with_context(|| format!("設定ファイルの読み込みに失敗: {}", config_path.display()))?;
+        .with_context(|| format!("failed to read config file: {}", config_path.display()))?;
 
     let cache = CompiledCache {
         version: CACHE_VERSION,
@@ -34,30 +34,30 @@ pub fn write(output_path: &Path, matcher: &Matcher, config_path: &Path) -> Resul
         matcher: matcher.clone(),
     };
 
-    // 親ディレクトリを作成
+    // Create parent directories
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
-            .with_context(|| format!("キャッシュディレクトリの作成に失敗: {}", parent.display()))?;
+            .with_context(|| format!("failed to create cache directory: {}", parent.display()))?;
     }
 
-    let encoded = bincode::serialize(&cache).context("キャッシュのシリアライズに失敗")?;
+    let encoded = bincode::serialize(&cache).context("failed to serialize cache")?;
     std::fs::write(output_path, encoded)
-        .with_context(|| format!("キャッシュファイルの書き込みに失敗: {}", output_path.display()))?;
+        .with_context(|| format!("failed to write cache file: {}", output_path.display()))?;
 
     Ok(())
 }
 
-/// キャッシュを読み込み
+/// Read cache from file
 pub fn read(cache_path: &Path) -> Result<CompiledCache> {
     let data = std::fs::read(cache_path)
-        .with_context(|| format!("キャッシュファイルの読み込みに失敗: {}", cache_path.display()))?;
+        .with_context(|| format!("failed to read cache file: {}", cache_path.display()))?;
 
     let cache: CompiledCache =
-        bincode::deserialize(&data).context("キャッシュのデシリアライズに失敗")?;
+        bincode::deserialize(&data).context("failed to deserialize cache")?;
 
     if cache.version != CACHE_VERSION {
         anyhow::bail!(
-            "キャッシュバージョンが不一致です (expected: {}, got: {})",
+            "cache version mismatch (expected: {}, got: {})",
             CACHE_VERSION,
             cache.version
         );
@@ -66,11 +66,11 @@ pub fn read(cache_path: &Path) -> Result<CompiledCache> {
     Ok(cache)
 }
 
-/// キャッシュの鮮度をチェック
-/// config_path の内容ハッシュとキャッシュのハッシュを比較
+/// Check cache freshness
+/// Compare config content hash with cache hash
 pub fn is_fresh(cache: &CompiledCache, config_path: &Path) -> Result<bool> {
     let config_content = std::fs::read_to_string(config_path)
-        .with_context(|| format!("設定ファイルの読み込みに失敗: {}", config_path.display()))?;
+        .with_context(|| format!("failed to read config file: {}", config_path.display()))?;
 
     let current_hash = hash_config(&config_content);
     Ok(cache.config_hash == current_hash)
@@ -145,7 +145,7 @@ expansion = "git"
         let matcher = Matcher::new();
         write(&cache_path, &matcher, &config_path).unwrap();
 
-        // 設定ファイルを変更
+        // Modify config file
         std::fs::write(
             &config_path,
             r#"

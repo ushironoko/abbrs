@@ -1,24 +1,24 @@
 use std::fmt;
 
-/// 展開結果
+/// Expansion result
 #[derive(Debug)]
 pub enum ExpandOutput {
-    /// 展開成功
+    /// Expansion succeeded
     Success {
-        /// 新しいバッファ全体
+        /// New buffer contents
         buffer: String,
-        /// 新しいカーソル位置
+        /// New cursor position
         cursor: usize,
     },
-    /// マッチなし
+    /// No match
     NoMatch,
-    /// コマンド評価が必要
+    /// Command evaluation required
     Evaluate {
         command: String,
         prefix: String,
         rbuffer: String,
     },
-    /// キャッシュが古い
+    /// Cache is stale
     StaleCache,
 }
 
@@ -50,15 +50,15 @@ impl fmt::Display for ExpandOutput {
     }
 }
 
-/// プレースホルダージャンプ結果
+/// Placeholder jump result
 #[derive(Debug)]
 pub enum PlaceholderOutput {
-    /// ジャンプ成功
+    /// Jump succeeded
     Success {
         buffer: String,
         cursor: usize,
     },
-    /// プレースホルダーなし
+    /// No placeholder found
     NoPlaceholder,
 }
 

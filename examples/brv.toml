@@ -2,7 +2,7 @@
 # Place this file at: ~/.config/brv/brv.toml
 
 [settings]
-strict = false  # true: サフィックス衝突もエラーにする
+strict = false  # true: treat suffix conflicts as errors
 
 # === Git shortcuts ===
 

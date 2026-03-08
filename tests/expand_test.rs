@@ -10,7 +10,7 @@ fn setup_compiled(dir: &TempDir, config_content: &str) -> (std::path::PathBuf, s
     let config_path = dir.path().join("brv.toml");
     std::fs::write(&config_path, config_content).unwrap();
 
-    // コンパイル
+    // Compile
     Command::cargo_bin("brv")
         .unwrap()
         .args(["compile", "--config", config_path.to_str().unwrap()])
@@ -154,7 +154,7 @@ expansion = "git"
 "#,
     );
 
-    // 設定ファイルを変更してキャッシュを古くする
+    // Modify config to make cache stale
     std::fs::write(
         &config_path,
         r#"

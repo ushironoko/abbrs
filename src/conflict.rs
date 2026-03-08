@@ -1,18 +1,18 @@
 use crate::config::Abbreviation;
 use std::path::PathBuf;
 
-/// 衝突タイプ
+/// Conflict type
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConflictType {
-    /// PATH 上のコマンドと完全一致 → エラー
+    /// Exact match with command on PATH → error
     ExactPathMatch,
-    /// PATH 上のコマンドのサフィックス一致 → 警告
+    /// Suffix match with command on PATH → warning
     SuffixPathMatch,
-    /// シェルビルトイン → エラー
+    /// Shell builtin → error
     ShellBuiltin,
 }
 
-/// 衝突情報
+/// Conflict information
 #[derive(Debug, Clone)]
 pub struct Conflict {
     pub keyword: String,
@@ -21,7 +21,7 @@ pub struct Conflict {
     pub command_path: Option<PathBuf>,
 }
 
-/// 衝突検出レポート
+/// Conflict detection report
 #[derive(Debug, Default)]
 pub struct ConflictReport {
     pub errors: Vec<Conflict>,
@@ -40,7 +40,7 @@ impl std::fmt::Display for Conflict {
             ConflictType::ExactPathMatch => {
                 write!(
                     f,
-                    "\"{}\" は PATH 上の以下のコマンドと衝突します: {} (完全一致)",
+                    "\"{}\" conflicts with command on PATH: {} (exact match)",
                     self.keyword,
                     self.command_path
                         .as_ref()
@@ -51,7 +51,7 @@ impl std::fmt::Display for Conflict {
             ConflictType::SuffixPathMatch => {
                 write!(
                     f,
-                    "\"{}\" は PATH 上のコマンド \"{}\" のサフィックスと一致します: {}",
+                    "\"{}\" matches suffix of command \"{}\" on PATH: {}",
                     self.keyword,
                     self.conflicting_command,
                     self.command_path
@@ -63,7 +63,7 @@ impl std::fmt::Display for Conflict {
             ConflictType::ShellBuiltin => {
                 write!(
                     f,
-                    "\"{}\" は zsh ビルトインコマンドと衝突します",
+                    "\"{}\" conflicts with zsh builtin command",
                     self.keyword
                 )
             }
@@ -71,7 +71,7 @@ impl std::fmt::Display for Conflict {
     }
 }
 
-/// zsh ビルトインコマンド一覧
+/// List of zsh builtin commands
 pub fn zsh_builtins() -> &'static [&'static str] {
     &[
         "alias",
@@ -170,7 +170,7 @@ pub fn zsh_builtins() -> &'static [&'static str] {
     ]
 }
 
-/// $PATH を走査してコマンド名を収集
+/// Scan $PATH and collect command names
 pub fn scan_path() -> Vec<(String, PathBuf)> {
     let path_var = match std::env::var("PATH") {
         Ok(p) => p,
@@ -190,12 +190,12 @@ pub fn scan_path() -> Vec<(String, PathBuf)> {
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
 
-            // 重複回避 (最初に見つかったものを優先)
+            // Skip duplicates (first found takes priority)
             if seen.contains(&file_name) {
                 continue;
             }
 
-            // 実行可能ファイルかチェック
+            // Check if file is executable
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -222,7 +222,7 @@ pub fn scan_path() -> Vec<(String, PathBuf)> {
     commands
 }
 
-/// 衝突検出のメインエントリ
+/// Main entry point for conflict detection
 pub fn detect_conflicts(
     abbreviations: &[Abbreviation],
     path_commands: &[(String, PathBuf)],
@@ -232,14 +232,14 @@ pub fn detect_conflicts(
     let builtins = zsh_builtins();
 
     for abbr in abbreviations {
-        // allow_conflict が設定されている場合はスキップ
+        // Skip if allow_conflict is set
         if abbr.allow_conflict {
             continue;
         }
 
         let keyword = &abbr.keyword;
 
-        // 1. シェルビルトインとの衝突チェック
+        // 1. Check for shell builtin conflicts
         if builtins.contains(&keyword.as_str()) {
             report.errors.push(Conflict {
                 keyword: keyword.clone(),
@@ -247,12 +247,12 @@ pub fn detect_conflicts(
                 conflicting_command: keyword.clone(),
                 command_path: None,
             });
-            continue; // ビルトイン衝突はエラーとして報告し、PATH チェックはスキップ
+            continue; // Report builtin conflict as error and skip PATH check
         }
 
-        // 2. PATH 上のコマンドとの衝突チェック
+        // 2. Check for PATH command conflicts
         for (cmd_name, cmd_path) in path_commands {
-            // 完全一致
+            // Exact match
             if cmd_name == keyword {
                 report.errors.push(Conflict {
                     keyword: keyword.clone(),
@@ -261,7 +261,7 @@ pub fn detect_conflicts(
                     command_path: Some(cmd_path.clone()),
                 });
             }
-            // サフィックス一致 (完全一致以外で、コマンド名がキーワードで終わる)
+            // Suffix match (not exact match, command name ends with keyword)
             else if cmd_name.len() > keyword.len() && cmd_name.ends_with(keyword.as_str()) {
                 let conflict = Conflict {
                     keyword: keyword.clone(),
@@ -423,7 +423,7 @@ mod tests {
         let display = conflict.to_string();
         assert!(display.contains("cc"));
         assert!(display.contains("/usr/bin/cc"));
-        assert!(display.contains("完全一致"));
+        assert!(display.contains("exact match"));
     }
 
     #[test]
@@ -442,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_suffix_match_not_triggered_for_same_length() {
-        // "git" と "git" は完全一致であり、サフィックス一致にはならない
+        // "git" and "git" is an exact match, not a suffix match
         let abbrs = vec![make_abbr("git")];
         let path_cmds = make_path_commands(&[("git", "/usr/bin/git")]);
         let report = detect_conflicts(&abbrs, &path_cmds, false);
@@ -453,9 +453,9 @@ mod tests {
 
     #[test]
     fn test_scan_path_returns_results() {
-        // 実際の PATH をスキャンして結果を返すことを確認
+        // Verify that scanning the actual PATH returns results
         let commands = scan_path();
-        // CI 環境でも最低限のコマンドは存在するはず
+        // At least some commands should exist even in CI environments
         assert!(!commands.is_empty());
     }
 }

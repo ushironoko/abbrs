@@ -40,12 +40,12 @@ pub struct AbbreviationContext {
 
 pub fn load(path: &Path) -> Result<Config> {
     let content =
-        std::fs::read_to_string(path).with_context(|| format!("設定ファイルを読み込めません: {}", path.display()))?;
+        std::fs::read_to_string(path).with_context(|| format!("failed to read config file: {}", path.display()))?;
     parse(&content)
 }
 
 pub fn parse(content: &str) -> Result<Config> {
-    let config: Config = toml::from_str(content).context("TOML パースエラー")?;
+    let config: Config = toml::from_str(content).context("TOML parse error")?;
     validate(&config)?;
     Ok(config)
 }
@@ -53,26 +53,26 @@ pub fn parse(content: &str) -> Result<Config> {
 fn validate(config: &Config) -> Result<()> {
     for abbr in &config.abbr {
         if abbr.keyword.is_empty() {
-            anyhow::bail!("keyword が空の abbreviation があります");
+            anyhow::bail!("abbreviation has empty keyword");
         }
         if abbr.expansion.is_empty() {
             anyhow::bail!(
-                "keyword \"{}\" の expansion が空です",
+                "keyword \"{}\" has empty expansion",
                 abbr.keyword
             );
         }
         if abbr.keyword.contains(' ') {
             anyhow::bail!(
-                "keyword \"{}\" にスペースは使用できません",
+                "keyword \"{}\" must not contain spaces",
                 abbr.keyword
             );
         }
-        // コンテキスト正規表現のバリデーション
+        // validate context regex patterns
         if let Some(ctx) = &abbr.context {
             if let Some(ref pat) = ctx.lbuffer {
                 regex::Regex::new(pat).with_context(|| {
                     format!(
-                        "keyword \"{}\" の context.lbuffer 正規表現が不正です: {}",
+                        "keyword \"{}\" has invalid context.lbuffer regex: {}",
                         abbr.keyword, pat
                     )
                 })?;
@@ -80,7 +80,7 @@ fn validate(config: &Config) -> Result<()> {
             if let Some(ref pat) = ctx.rbuffer {
                 regex::Regex::new(pat).with_context(|| {
                     format!(
-                        "keyword \"{}\" の context.rbuffer 正規表現が不正です: {}",
+                        "keyword \"{}\" has invalid context.rbuffer regex: {}",
                         abbr.keyword, pat
                     )
                 })?;
@@ -90,15 +90,15 @@ fn validate(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// デフォルトの設定ファイルパスを取得
+/// Get the default config file path
 pub fn default_config_path() -> Result<std::path::PathBuf> {
-    let xdg = xdg::BaseDirectories::with_prefix("brv").context("XDG ディレクトリの取得に失敗")?;
+    let xdg = xdg::BaseDirectories::with_prefix("brv").context("failed to get XDG directories")?;
     Ok(xdg.get_config_home().join("brv.toml"))
 }
 
-/// デフォルトのキャッシュファイルパスを取得
+/// Get the default cache file path
 pub fn default_cache_path() -> Result<std::path::PathBuf> {
-    let xdg = xdg::BaseDirectories::with_prefix("brv").context("XDG ディレクトリの取得に失敗")?;
+    let xdg = xdg::BaseDirectories::with_prefix("brv").context("failed to get XDG directories")?;
     Ok(xdg.get_cache_home().join("brv.cache"))
 }
 
@@ -203,7 +203,7 @@ expansion = "git"
 "#;
         let result = parse(toml);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("keyword が空"));
+        assert!(result.unwrap_err().to_string().contains("empty keyword"));
     }
 
     #[test]
@@ -215,7 +215,7 @@ expansion = ""
 "#;
         let result = parse(toml);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("expansion が空"));
+        assert!(result.unwrap_err().to_string().contains("empty expansion"));
     }
 
     #[test]
@@ -227,7 +227,7 @@ expansion = "git commit"
 "#;
         let result = parse(toml);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("スペースは使用できません"));
+        assert!(result.unwrap_err().to_string().contains("must not contain spaces"));
     }
 
     #[test]
@@ -240,7 +240,7 @@ context.lbuffer = "[invalid"
 "#;
         let result = parse(toml);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("正規表現が不正"));
+        assert!(result.unwrap_err().to_string().contains("invalid context.lbuffer regex"));
     }
 
     #[test]

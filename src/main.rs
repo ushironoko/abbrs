@@ -15,62 +15,62 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// 設定コンパイル + 衝突検証
+    /// Compile config and verify conflicts
     Compile {
-        /// サフィックス衝突もエラーにする
+        /// Treat suffix conflicts as errors
         #[arg(long, default_value = "false")]
         strict: bool,
 
-        /// 設定ファイルパス
+        /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
     },
 
-    /// 展開 (ZLE から呼び出し)
+    /// Expand abbreviation (called from ZLE)
     Expand {
-        /// カーソル左側のバッファ
+        /// Buffer left of cursor
         #[arg(long)]
         lbuffer: String,
 
-        /// カーソル右側のバッファ
+        /// Buffer right of cursor
         #[arg(long)]
         rbuffer: String,
 
-        /// キャッシュファイルパス
+        /// Cache file path
         #[arg(long)]
         cache: Option<PathBuf>,
 
-        /// 設定ファイルパス (鮮度チェック用)
+        /// Config file path (for freshness check)
         #[arg(long)]
         config: Option<PathBuf>,
     },
 
-    /// プレースホルダージャンプ
+    /// Jump to next placeholder
     NextPlaceholder {
-        /// カーソル左側のバッファ
+        /// Buffer left of cursor
         #[arg(long)]
         lbuffer: String,
 
-        /// カーソル右側のバッファ
+        /// Buffer right of cursor
         #[arg(long)]
         rbuffer: String,
     },
 
-    /// 登録済み abbreviation 一覧
+    /// List registered abbreviations
     List {
-        /// 設定ファイルパス
+        /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
     },
 
-    /// 設定の構文チェックのみ
+    /// Syntax check config only
     Check {
-        /// 設定ファイルパス
+        /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
     },
 
-    /// 設定ファイル雛形生成
+    /// Generate config file template
     Init,
 }
 
@@ -112,20 +112,20 @@ fn cmd_compile(strict: bool, cfg: Option<PathBuf>) -> Result<()> {
 
     if !config_path.exists() {
         anyhow::bail!(
-            "設定ファイルが見つかりません: {}\n`brv init` で雛形を生成できます",
+            "config file not found: {}\nrun `brv init` to generate a template",
             config_path.display()
         );
     }
 
     let result = compiler::compile(&config_path, &cache_path, strict)?;
 
-    // 警告表示
+    // Print warnings
     for warning in &result.warnings {
         eprintln!("  ⚠ {}", warning);
     }
 
     eprintln!(
-        "✓ {} 件の abbreviation をコンパイルしました → {}",
+        "✓ compiled {} abbreviation(s) → {}",
         result.abbr_count,
         cache_path.display()
     );
@@ -142,7 +142,7 @@ fn cmd_expand(
     let cache_file = resolve_cache_path(cache_path)?;
     let config_path = resolve_config_path(cfg)?;
 
-    // キャッシュ読み込み
+    // Load cache
     let compiled = match cache::read(&cache_file) {
         Ok(c) => c,
         Err(_) => {
@@ -151,7 +151,7 @@ fn cmd_expand(
         }
     };
 
-    // 鮮度チェック
+    // Freshness check
     if config_path.exists() {
         if let Ok(fresh) = cache::is_fresh(&compiled, &config_path) {
             if !fresh {
@@ -174,7 +174,7 @@ fn cmd_next_placeholder(lbuffer: String, rbuffer: String) -> Result<()> {
 
     match placeholder::find_next_placeholder(&full_buffer, cursor) {
         Some((start, end)) => {
-            // プレースホルダーを除去してカーソルをそこに移動
+            // Remove placeholder and move cursor there
             let mut new_buffer = String::with_capacity(full_buffer.len() - (end - start));
             new_buffer.push_str(&full_buffer[..start]);
             new_buffer.push_str(&full_buffer[end..]);
@@ -200,7 +200,7 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
 
     if !config_path.exists() {
         anyhow::bail!(
-            "設定ファイルが見つかりません: {}\n`brv init` で雛形を生成できます",
+            "config file not found: {}\nrun `brv init` to generate a template",
             config_path.display()
         );
     }
@@ -208,11 +208,11 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
     let config = config::load(&config_path)?;
 
     if config.abbr.is_empty() {
-        println!("(abbreviation が登録されていません)");
+        println!("(no abbreviations registered)");
         return Ok(());
     }
 
-    // ヘッダー
+    // Header
     println!("{:<15} {:<6} {:<40}", "KEYWORD", "TYPE", "EXPANSION");
     println!("{}", "-".repeat(65));
 
@@ -247,7 +247,7 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
         println!("{:<15} {:<6} {}{}", abbr.keyword, abbr_type, expansion, flag_str);
     }
 
-    println!("\n合計: {} 件", config.abbr.len());
+    println!("\nTotal: {}", config.abbr.len());
     Ok(())
 }
 
@@ -256,13 +256,13 @@ fn cmd_check(cfg: Option<PathBuf>) -> Result<()> {
 
     if !config_path.exists() {
         anyhow::bail!(
-            "設定ファイルが見つかりません: {}\n`brv init` で雛形を生成できます",
+            "config file not found: {}\nrun `brv init` to generate a template",
             config_path.display()
         );
     }
 
     let count = compiler::check(&config_path)?;
-    eprintln!("✓ 設定ファイルは有効です ({} 件の abbreviation)", count);
+    eprintln!("✓ config is valid ({} abbreviation(s))", count);
     Ok(())
 }
 
@@ -271,12 +271,12 @@ fn cmd_init() -> Result<()> {
 
     if config_path.exists() {
         anyhow::bail!(
-            "設定ファイルは既に存在します: {}",
+            "config file already exists: {}",
             config_path.display()
         );
     }
 
-    // 親ディレクトリを作成
+    // Create parent directories
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -285,9 +285,9 @@ fn cmd_init() -> Result<()> {
 # See: https://github.com/ushironoko/brv
 
 [settings]
-strict = false  # true: サフィックス衝突もエラーにする
+strict = false  # true: treat suffix conflicts as errors
 
-# Regular abbreviation (コマンド位置のみで展開)
+# Regular abbreviation (expand only at command position)
 [[abbr]]
 keyword = "g"
 expansion = "git"
@@ -300,19 +300,19 @@ expansion = "git commit -m '{{message}}'"
 keyword = "gp"
 expansion = "git push"
 
-# Global abbreviation (位置を問わず展開)
+# Global abbreviation (expand at any position)
 # [[abbr]]
 # keyword = "NE"
 # expansion = "2>/dev/null"
 # global = true
 
-# Context abbreviation (コンテキスト条件付き)
+# Context abbreviation (with context condition)
 # [[abbr]]
 # keyword = "main"
 # expansion = "main --branch"
 # context.lbuffer = "^git (checkout|switch)"
 
-# Command evaluation (コマンド実行結果で展開)
+# Command evaluation (expand with command output)
 # [[abbr]]
 # keyword = "TODAY"
 # expansion = "date +%Y-%m-%d"
@@ -321,6 +321,6 @@ expansion = "git push"
 "#;
 
     std::fs::write(&config_path, template)?;
-    eprintln!("✓ 設定ファイルを生成しました: {}", config_path.display());
+    eprintln!("✓ generated config file: {}", config_path.display());
     Ok(())
 }

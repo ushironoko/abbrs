@@ -2,45 +2,45 @@ use crate::{cache, config, conflict, matcher};
 use anyhow::Result;
 use std::path::Path;
 
-/// コンパイル結果
+/// Compile result
 #[derive(Debug)]
 pub struct CompileResult {
     pub warnings: Vec<conflict::Conflict>,
     pub abbr_count: usize,
 }
 
-/// brv compile のメインフロー
+/// Main flow of brv compile
 pub fn compile(config_path: &Path, output_path: &Path, strict: bool) -> Result<CompileResult> {
-    // 1. TOML パース
+    // 1. Parse TOML
     let cfg = config::load(config_path)?;
 
-    // settings.strict と CLI の --strict を OR で結合
+    // Combine settings.strict and CLI --strict with OR
     let effective_strict = strict || cfg.settings.strict;
 
-    // 2. PATH スキャン
+    // 2. Scan PATH
     let path_commands = conflict::scan_path();
 
-    // 3. 衝突検出
+    // 3. Detect conflicts
     let report = conflict::detect_conflicts(&cfg.abbr, &path_commands, effective_strict);
 
-    // 4. エラーがあればコンパイル失敗
+    // 4. Fail compilation if there are errors
     if report.has_errors() {
-        // エラーメッセージを構築
-        let mut message = String::from("衝突が検出されました:\n");
+        // Build error message
+        let mut message = String::from("Conflicts detected:\n");
         for err in &report.errors {
             message.push_str(&format!("  ✗ {}\n", err));
         }
         for warn in &report.warnings {
             message.push_str(&format!("  ⚠ {}\n", warn));
         }
-        message.push_str("\nヒント: allow_conflict = true で個別に衝突を許可できます");
+        message.push_str("\nHint: set allow_conflict = true to allow individual conflicts");
         anyhow::bail!(message);
     }
 
-    // 5. 警告を収集
+    // 5. Collect warnings
     let warnings = report.warnings.clone();
 
-    // 6. Matcher 構築 + バイナリキャッシュ書き出し
+    // 6. Build Matcher and write binary cache
     let matcher = matcher::build(&cfg.abbr);
     cache::write(output_path, &matcher, config_path)?;
 
@@ -50,7 +50,7 @@ pub fn compile(config_path: &Path, output_path: &Path, strict: bool) -> Result<C
     })
 }
 
-/// 設定の構文チェックのみ (コンパイルなし)
+/// Syntax check only (no compilation)
 pub fn check(config_path: &Path) -> Result<usize> {
     let cfg = config::load(config_path)?;
     Ok(cfg.abbr.len())
@@ -106,7 +106,7 @@ expansion = "custom_cd"
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("cd"));
-        assert!(err_msg.contains("ビルトイン"));
+        assert!(err_msg.contains("builtin"));
     }
 
     #[test]
@@ -160,7 +160,7 @@ expansion = "git"
     #[test]
     fn test_compile_settings_strict() {
         let dir = TempDir::new().unwrap();
-        // strict モードでもサフィックス衝突がないキーワードなら成功する
+        // Succeeds in strict mode when keyword has no suffix conflict
         let config_path = write_config(
             &dir,
             r#"

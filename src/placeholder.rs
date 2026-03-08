@@ -1,12 +1,12 @@
-/// プレースホルダー処理結果
+/// Placeholder processing result
 pub struct PlaceholderResult {
-    /// プレースホルダー除去後のテキスト
+    /// Text after placeholder removal
     pub text: String,
-    /// カーソル位置 (最初のプレースホルダーの開始位置)
+    /// Cursor position (start position of the first placeholder)
     pub cursor: usize,
 }
 
-/// 最初の {{...}} プレースホルダーを除去し、そこにカーソルを移動
+/// Remove first {{...}} placeholder and move cursor there
 pub fn apply_first_placeholder(text: &str, default_cursor: usize) -> PlaceholderResult {
     if let Some(start) = text.find("{{") {
         if let Some(end) = text[start..].find("}}") {
@@ -27,7 +27,7 @@ pub fn apply_first_placeholder(text: &str, default_cursor: usize) -> Placeholder
     }
 }
 
-/// 次のプレースホルダーを検索 (カーソル位置以降)
+/// Find next placeholder (from cursor position onward)
 pub fn find_next_placeholder(text: &str, cursor: usize) -> Option<(usize, usize)> {
     let search_start = cursor.min(text.len());
     if let Some(offset) = text[search_start..].find("{{") {
@@ -37,7 +37,7 @@ pub fn find_next_placeholder(text: &str, cursor: usize) -> Option<(usize, usize)
         }
     }
 
-    // カーソル以降になければ先頭から検索 (ラップ)
+    // If not found after cursor, wrap around from beginning
     if cursor > 0 {
         if let Some(start) = text.find("{{") {
             if start < cursor {
@@ -51,7 +51,7 @@ pub fn find_next_placeholder(text: &str, cursor: usize) -> Option<(usize, usize)
     None
 }
 
-/// テキスト中のすべてのプレースホルダーを除去
+/// Remove all placeholders from text
 pub fn remove_all_placeholders(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut remaining = text;
@@ -61,7 +61,7 @@ pub fn remove_all_placeholders(text: &str) -> String {
         if let Some(end) = remaining[start..].find("}}") {
             remaining = &remaining[start + end + 2..];
         } else {
-            // 閉じタグがない場合は {{ 以降をそのまま追加
+            // If no closing tag, keep {{ and everything after it
             result.push_str(&remaining[start..]);
             return result;
         }
@@ -129,7 +129,7 @@ mod tests {
         let result = find_next_placeholder(text, 15);
         assert_eq!(result, Some((20, 25)));
 
-        // ラップ
+        // Wrap around
         let result = find_next_placeholder(text, 25);
         assert_eq!(result, Some((0, 5)));
     }
@@ -152,12 +152,12 @@ mod tests {
 
     #[test]
     fn test_remove_all_placeholders_unclosed() {
-        // "text {{valid}} text {{unclosed" → "text " 部分は valid を除去、残りはそのまま
+        // "text {{valid}} text {{unclosed" -> removes valid, keeps the rest as-is
         assert_eq!(
             remove_all_placeholders("{{valid}} text {{unclosed"),
             " text {{unclosed"
         );
-        // 閉じタグなしの単純なケース
+        // Simple case with no closing tag
         assert_eq!(
             remove_all_placeholders("only {{unclosed"),
             "only {{unclosed"
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn test_placeholder_cursor_within_bounds() {
-        // プレースホルダーありの場合、カーソルはテキスト長以内
+        // When placeholders exist, cursor should be within text length
         let texts = vec![
             "{{a}}",
             "pre {{a}} post",
