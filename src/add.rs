@@ -12,6 +12,9 @@ pub struct AddParams {
     pub expansion: String,
     pub global: bool,
     pub evaluate: bool,
+    pub function: bool,
+    pub regex: bool,
+    pub command: Option<String>,
     pub allow_conflict: bool,
     pub context_lbuffer: Option<String>,
     pub context_rbuffer: Option<String>,
@@ -19,47 +22,73 @@ pub struct AddParams {
 
 /// Append a new abbreviation entry to the config file
 pub fn append_to_config(path: &Path, params: &AddParams) -> Result<()> {
-    // Validate the new entry by constructing a minimal TOML and parsing it
+    // Validate the new entry fields before touching the file
     validate_params(params)?;
 
-    // Check for duplicate keywords in existing config
-    if path.exists() {
-        let existing = config::load(path)?;
-        if let Some(dup) = existing.abbr.iter().find(|a| a.keyword == params.keyword) {
-            // If it has exactly the same context, it's a duplicate
-            let new_has_context = params.context_lbuffer.is_some() || params.context_rbuffer.is_some();
-            let dup_has_context = dup.context.is_some();
-            if !new_has_context && !dup_has_context {
-                anyhow::bail!(
-                    "keyword \"{}\" already exists in config (expansion: \"{}\")",
-                    params.keyword,
-                    dup.expansion
-                );
+    // Read existing content (or empty string for new file)
+    let existing_content = if path.exists() {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read config file: {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    // Check for duplicate keywords in existing config (scope-aware)
+    if !existing_content.is_empty() {
+        let existing = config::parse(&existing_content)?;
+        if let Some(dup) = existing.abbr.iter().find(|a| {
+            if a.keyword != params.keyword {
+                return false;
             }
+            // Same keyword — only a true duplicate if scopes match
+            let same_command = a.command == params.command;
+            let same_global = a.global == params.global;
+            let same_regex = a.regex == params.regex;
+            let same_context = match (&a.context, &params.context_lbuffer, &params.context_rbuffer) {
+                // Both have no context
+                (None, None, None) => true,
+                // Existing has context, new does not (or vice versa)
+                (Some(_), None, None) | (None, Some(_), _) | (None, _, Some(_)) => false,
+                // Both have context — compare actual pattern values
+                (Some(ctx), _, _) => {
+                    ctx.lbuffer.as_deref() == params.context_lbuffer.as_deref()
+                        && ctx.rbuffer.as_deref() == params.context_rbuffer.as_deref()
+                }
+            };
+            same_command && same_global && same_regex && same_context
+        }) {
+            anyhow::bail!(
+                "keyword \"{}\" already exists in config with the same scope (expansion: \"{}\")",
+                params.keyword,
+                dup.expansion
+            );
         }
     }
 
     let entry = build_toml_entry(params);
 
-    // Append to file
+    // Build the combined content and validate BEFORE writing to disk
+    let mut combined = existing_content.clone();
+    if !combined.is_empty() && !combined.ends_with('\n') {
+        combined.push('\n');
+    }
+    combined.push_str(&entry);
+
+    config::parse(&combined)
+        .with_context(|| "config validation failed: the new entry is invalid")?;
+
+    // Validation passed — now write to disk
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .with_context(|| format!("failed to open config file: {}", path.display()))?;
 
-    // Ensure we start on a new line
-    if path.exists() {
-        let content = std::fs::read_to_string(path)?;
-        if !content.is_empty() && !content.ends_with('\n') {
-            writeln!(file)?;
-        }
+    if !existing_content.is_empty() && !existing_content.ends_with('\n') {
+        writeln!(file)?;
     }
 
     write!(file, "{}", entry)?;
-
-    // Verify the whole config is still valid after appending
-    config::load(path).with_context(|| "config validation failed after adding abbreviation")?;
 
     Ok(())
 }
@@ -73,6 +102,27 @@ fn validate_params(params: &AddParams) -> Result<()> {
     }
     if params.expansion.is_empty() {
         anyhow::bail!("expansion must not be empty");
+    }
+    // Mutual exclusion checks (same rules as config::validate)
+    if params.function && params.evaluate {
+        anyhow::bail!(
+            "keyword \"{}\" cannot have both function and evaluate",
+            params.keyword
+        );
+    }
+    if params.command.is_some() && params.global {
+        anyhow::bail!(
+            "keyword \"{}\" cannot have both command and global",
+            params.keyword
+        );
+    }
+    if params.regex {
+        regex::Regex::new(&params.keyword).with_context(|| {
+            format!(
+                "keyword \"{}\" has regex = true but invalid regex pattern",
+                params.keyword
+            )
+        })?;
     }
     if let Some(ref pat) = params.context_lbuffer {
         regex::Regex::new(pat)
@@ -96,6 +146,15 @@ fn build_toml_entry(params: &AddParams) -> String {
     }
     if params.evaluate {
         entry.push_str("evaluate = true\n");
+    }
+    if params.function {
+        entry.push_str("function = true\n");
+    }
+    if params.regex {
+        entry.push_str("regex = true\n");
+    }
+    if let Some(ref cmd) = params.command {
+        entry.push_str(&format!("command = {}\n", toml_quote(cmd)));
     }
     if params.allow_conflict {
         entry.push_str("allow_conflict = true\n");
@@ -144,6 +203,9 @@ pub fn interactive_prompt() -> Result<AddParams> {
         expansion,
         global,
         evaluate,
+        function: false,
+        regex: false,
+        command: None,
         allow_conflict,
         context_lbuffer,
         context_rbuffer,
@@ -295,6 +357,9 @@ mod tests {
             expansion: "git".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -316,6 +381,9 @@ mod tests {
             expansion: "main --branch".to_string(),
             global: true,
             evaluate: true,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: true,
             context_lbuffer: Some("^git (checkout|switch)".to_string()),
             context_rbuffer: Some(".*$".to_string()),
@@ -335,6 +403,9 @@ mod tests {
             expansion: "git commit -m '{{message}}'".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -352,6 +423,9 @@ mod tests {
             expansion: "git".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -366,6 +440,9 @@ mod tests {
             expansion: "git".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -381,6 +458,9 @@ mod tests {
             expansion: "git commit".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -396,6 +476,9 @@ mod tests {
             expansion: "".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -411,6 +494,9 @@ mod tests {
             expansion: "git".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: Some("[invalid".to_string()),
             context_rbuffer: None,
@@ -426,6 +512,9 @@ mod tests {
             expansion: "git".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: Some("[invalid".to_string()),
@@ -458,6 +547,9 @@ mod tests {
             expansion: "git".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -498,6 +590,9 @@ expansion = "git"
             expansion: "git status".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -505,6 +600,77 @@ expansion = "git"
 
         let err = append_to_config(&path, &params).unwrap_err();
         assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_different_command_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "co"
+expansion = "checkout"
+command = "git"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but different command scope — should succeed
+        let params = AddParams {
+            keyword: "co".to_string(),
+            expansion: "checkout".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: Some("kubectl".to_string()),
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
+        assert_eq!(cfg.abbr[0].command, Some("git".to_string()));
+        assert_eq!(cfg.abbr[1].command, Some("kubectl".to_string()));
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_command_vs_no_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "co"
+expansion = "checkout"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but one has command scope — should succeed
+        let params = AddParams {
+            keyword: "co".to_string(),
+            expansion: "checkout".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: Some("git".to_string()),
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
     }
 
     #[test]
@@ -519,6 +685,9 @@ expansion = "git"
             expansion: "2>/dev/null".to_string(),
             global: true,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: None,
             context_rbuffer: None,
@@ -544,6 +713,9 @@ expansion = "git"
             expansion: "main --branch".to_string(),
             global: false,
             evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
             allow_conflict: false,
             context_lbuffer: Some("^git (checkout|switch)".to_string()),
             context_rbuffer: None,
@@ -556,5 +728,167 @@ expansion = "git"
 
         let config = config::parse(&content).unwrap();
         assert!(config.abbr[0].context.is_some());
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_different_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "main"
+expansion = "main --branch"
+context.lbuffer = "^git (checkout|switch)"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but different context.lbuffer — should succeed
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main --rebase".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
+            allow_conflict: false,
+            context_lbuffer: Some("^git merge".to_string()),
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_same_context_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "main"
+expansion = "main --branch"
+context.lbuffer = "^git (checkout|switch)"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword AND same context — should be rejected as duplicate
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main --rebase".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
+            allow_conflict: false,
+            context_lbuffer: Some("^git (checkout|switch)".to_string()),
+            context_rbuffer: None,
+        };
+
+        let err = append_to_config(&path, &params).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_append_to_config_context_vs_no_context_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "main"
+expansion = "main --branch"
+context.lbuffer = "^git (checkout|switch)"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but no context — different scope, should succeed
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
+    }
+
+    #[test]
+    fn test_append_to_config_invalid_entry_does_not_corrupt_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = "[settings]\nstrict = false\n";
+        std::fs::write(&path, initial).unwrap();
+
+        // function + evaluate is invalid (mutually exclusive)
+        let params = AddParams {
+            keyword: "x".to_string(),
+            expansion: "y".to_string(),
+            global: false,
+            evaluate: true,
+            function: true,
+            regex: false,
+            command: None,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        let err = append_to_config(&path, &params);
+        assert!(err.is_err());
+
+        // File should remain unchanged
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, initial);
+    }
+
+    #[test]
+    fn test_append_to_config_command_and_global_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = "[settings]\nstrict = false\n";
+        std::fs::write(&path, initial).unwrap();
+
+        let params = AddParams {
+            keyword: "co".to_string(),
+            expansion: "checkout".to_string(),
+            global: true,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: Some("git".to_string()),
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        let err = append_to_config(&path, &params);
+        assert!(err.is_err());
+
+        // File should remain unchanged
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, initial);
     }
 }

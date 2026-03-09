@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use kort::{add, cache, compiler, config, expand, output, placeholder};
+use kort::{add, cache, compiler, config, expand, import, manage, output, placeholder};
 
 #[derive(Parser, Debug)]
 #[command(name = "kort")]
@@ -91,6 +91,18 @@ enum Commands {
         #[arg(long, default_value = "false")]
         evaluate: bool,
 
+        /// Run expansion as shell function
+        #[arg(long, default_value = "false")]
+        function: bool,
+
+        /// Keyword is a regex pattern
+        #[arg(long, default_value = "false")]
+        regex: bool,
+
+        /// Only expand as argument of this command
+        #[arg(long)]
+        command: Option<String>,
+
         /// Allow conflict with PATH commands
         #[arg(long, default_value = "false")]
         allow_conflict: bool,
@@ -107,13 +119,134 @@ enum Commands {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+
+    /// Erase an abbreviation from config
+    Erase {
+        /// Keyword to erase
+        keyword: String,
+
+        /// Only erase command-scoped entry for this command
+        #[arg(long)]
+        command: Option<String>,
+
+        /// Only erase global entry
+        #[arg(long, default_value = "false")]
+        global: bool,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Rename an abbreviation keyword
+    Rename {
+        /// Current keyword
+        old: String,
+
+        /// New keyword
+        new: String,
+
+        /// Only rename command-scoped entry for this command
+        #[arg(long)]
+        command: Option<String>,
+
+        /// Only rename global entry
+        #[arg(long, default_value = "false")]
+        global: bool,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Query if an abbreviation exists (exit code 0 = found)
+    Query {
+        /// Keyword to query
+        keyword: String,
+
+        /// Only query command-scoped entry for this command
+        #[arg(long)]
+        command: Option<String>,
+
+        /// Only query global entry
+        #[arg(long, default_value = "false")]
+        global: bool,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Show abbreviations in re-importable format
+    Show {
+        /// Filter by keyword
+        keyword: Option<String>,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Check for abbreviation reminders (called from ZLE accept-line)
+    Remind {
+        /// The full buffer being executed
+        #[arg(long)]
+        buffer: String,
+
+        /// Cache file path
+        #[arg(long)]
+        cache: Option<PathBuf>,
+    },
+
+    /// Import abbreviations from external sources
+    Import {
+        #[command(subcommand)]
+        source: ImportSource,
+    },
+
+    /// Export abbreviations in `kort add` format
+    Export {
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ImportSource {
+    /// Import from zsh aliases (reads from stdin)
+    Aliases {
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Import from fish abbreviations (reads from stdin or file)
+    Fish {
+        /// Input file (reads from stdin if omitted)
+        file: Option<PathBuf>,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Import from git aliases
+    GitAliases {
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Commands::Compile { strict, config: cfg } => cmd_compile(strict, cfg),
+        Commands::Compile {
+            strict,
+            config: cfg,
+        } => cmd_compile(strict, cfg),
         Commands::Expand {
             lbuffer,
             rbuffer,
@@ -129,11 +262,55 @@ fn main() -> Result<()> {
             expansion,
             global,
             evaluate,
+            function,
+            regex,
+            command,
             allow_conflict,
             context_lbuffer,
             context_rbuffer,
             config: cfg,
-        } => cmd_add(keyword, expansion, global, evaluate, allow_conflict, context_lbuffer, context_rbuffer, cfg),
+        } => cmd_add(
+            keyword,
+            expansion,
+            global,
+            evaluate,
+            function,
+            regex,
+            command,
+            allow_conflict,
+            context_lbuffer,
+            context_rbuffer,
+            cfg,
+        ),
+        Commands::Erase {
+            keyword,
+            command,
+            global,
+            config: cfg,
+        } => cmd_erase(keyword, command, global, cfg),
+        Commands::Rename {
+            old,
+            new,
+            command,
+            global,
+            config: cfg,
+        } => cmd_rename(old, new, command, global, cfg),
+        Commands::Query {
+            keyword,
+            command,
+            global,
+            config: cfg,
+        } => cmd_query(keyword, command, global, cfg),
+        Commands::Show {
+            keyword,
+            config: cfg,
+        } => cmd_show(keyword, cfg),
+        Commands::Remind {
+            buffer,
+            cache: cache_path,
+        } => cmd_remind(buffer, cache_path),
+        Commands::Import { source } => cmd_import(source),
+        Commands::Export { config: cfg } => cmd_export(cfg),
     }
 }
 
@@ -207,7 +384,7 @@ fn cmd_expand(
     }
 
     let input = expand::ExpandInput { lbuffer, rbuffer };
-    let result = expand::expand(&input, &compiled.matcher);
+    let result = expand::expand(&input, &compiled.matcher, &compiled.settings.prefixes);
     println!("{}", result);
 
     Ok(())
@@ -264,8 +441,12 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
     for abbr in &config.abbr {
         let abbr_type = if abbr.context.is_some() {
             "ctx"
+        } else if abbr.command.is_some() {
+            "cmd"
         } else if abbr.global {
             "global"
+        } else if abbr.regex {
+            "regex"
         } else {
             "reg"
         };
@@ -280,8 +461,14 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
         if abbr.evaluate {
             flags.push("eval");
         }
+        if abbr.function {
+            flags.push("func");
+        }
         if abbr.allow_conflict {
             flags.push("allow");
+        }
+        if let Some(ref cmd) = abbr.command {
+            flags.push(cmd);
         }
         let flag_str = if flags.is_empty() {
             String::new()
@@ -289,7 +476,10 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
             format!(" [{}]", flags.join(","))
         };
 
-        println!("{:<15} {:<6} {}{}", abbr.keyword, abbr_type, expansion, flag_str);
+        println!(
+            "{:<15} {:<6} {}{}",
+            abbr.keyword, abbr_type, expansion, flag_str
+        );
     }
 
     println!("\nTotal: {}", config.abbr.len());
@@ -316,6 +506,9 @@ fn cmd_add(
     expansion: Option<String>,
     global: bool,
     evaluate: bool,
+    function: bool,
+    regex: bool,
+    command: Option<String>,
     allow_conflict: bool,
     context_lbuffer: Option<String>,
     context_rbuffer: Option<String>,
@@ -336,6 +529,9 @@ fn cmd_add(
             expansion: exp,
             global,
             evaluate,
+            function,
+            regex,
+            command,
             allow_conflict,
             context_lbuffer,
             context_rbuffer,
@@ -350,11 +546,214 @@ fn cmd_add(
     };
 
     add::append_to_config(&config_path, &params)?;
-    eprintln!(
-        "✓ added: {} → {}",
-        params.keyword, params.expansion
-    );
+    eprintln!("✓ added: {} → {}", params.keyword, params.expansion);
 
+    Ok(())
+}
+
+fn cmd_remind(buffer: String, cache_path: Option<PathBuf>) -> Result<()> {
+    let cache_file = resolve_cache_path(cache_path)?;
+
+    let compiled = match cache::read(&cache_file) {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+
+    if !compiled.settings.remind {
+        return Ok(());
+    }
+
+    if let Some((keyword, expansion)) = expand::check_remind(&buffer, &compiled.matcher) {
+        // Output reminder to stderr (shown via zle -M in widget)
+        println!("kort: you could have used \"{}\" instead of \"{}\"", keyword, expansion);
+    }
+
+    Ok(())
+}
+
+fn cmd_erase(
+    keyword: String,
+    command: Option<String>,
+    global: bool,
+    cfg: Option<PathBuf>,
+) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "config file not found: {}\nrun `kort init` to generate a template",
+            config_path.display()
+        );
+    }
+
+    if manage::erase(&config_path, &keyword, command.as_deref(), global)? {
+        eprintln!("✓ erased: {}", keyword);
+    } else {
+        anyhow::bail!("abbreviation \"{}\" not found", keyword);
+    }
+
+    Ok(())
+}
+
+fn cmd_rename(
+    old: String,
+    new: String,
+    command: Option<String>,
+    global: bool,
+    cfg: Option<PathBuf>,
+) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "config file not found: {}\nrun `kort init` to generate a template",
+            config_path.display()
+        );
+    }
+
+    if manage::rename(&config_path, &old, &new, command.as_deref(), global)? {
+        eprintln!("✓ renamed: {} → {}", old, new);
+    } else {
+        anyhow::bail!("abbreviation \"{}\" not found", old);
+    }
+
+    Ok(())
+}
+
+fn cmd_query(
+    keyword: String,
+    command: Option<String>,
+    global: bool,
+    cfg: Option<PathBuf>,
+) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "config file not found: {}\nrun `kort init` to generate a template",
+            config_path.display()
+        );
+    }
+
+    if manage::query(&config_path, &keyword, command.as_deref(), global)? {
+        std::process::exit(0);
+    } else {
+        std::process::exit(1);
+    }
+}
+
+fn cmd_show(keyword: Option<String>, cfg: Option<PathBuf>) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "config file not found: {}\nrun `kort init` to generate a template",
+            config_path.display()
+        );
+    }
+
+    let lines = manage::show(&config_path, keyword.as_deref())?;
+    for line in lines {
+        println!("{}", line);
+    }
+    Ok(())
+}
+
+fn cmd_import(source: ImportSource) -> Result<()> {
+    match source {
+        ImportSource::Aliases { config: cfg } => {
+            let config_path = resolve_config_path(cfg)?;
+            require_config(&config_path)?;
+
+            let mut input = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
+
+            let result = import::import_aliases(&input, &config_path)?;
+            eprintln!("✓ imported {} abbreviation(s)", result.imported);
+            for s in &result.skipped {
+                eprintln!("  ⚠ skipped: {}", s);
+            }
+            Ok(())
+        }
+        ImportSource::Fish {
+            file,
+            config: cfg,
+        } => {
+            let config_path = resolve_config_path(cfg)?;
+            require_config(&config_path)?;
+
+            let content = match file {
+                Some(path) => std::fs::read_to_string(&path)
+                    .with_context(|| format!("failed to read file: {}", path.display()))?,
+                None => {
+                    let mut input = String::new();
+                    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
+                    input
+                }
+            };
+
+            let result = import::import_fish(&content, &config_path)?;
+            eprintln!("✓ imported {} abbreviation(s)", result.imported);
+            for s in &result.skipped {
+                eprintln!("  ⚠ skipped: {}", s);
+            }
+            Ok(())
+        }
+        ImportSource::GitAliases { config: cfg } => {
+            let config_path = resolve_config_path(cfg)?;
+            require_config(&config_path)?;
+
+            let output = std::process::Command::new("git")
+                .args(["config", "--get-regexp", "^alias\\."])
+                .output()
+                .context("failed to run git config")?;
+
+            if !output.status.success() {
+                if output.status.code() == Some(1) {
+                    eprintln!("no git aliases found");
+                    return Ok(());
+                }
+                anyhow::bail!(
+                    "git config failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+
+            let git_output = String::from_utf8_lossy(&output.stdout);
+            let result = import::import_git_aliases(&git_output, &config_path)?;
+            eprintln!("✓ imported {} abbreviation(s)", result.imported);
+            for s in &result.skipped {
+                eprintln!("  ⚠ skipped: {}", s);
+            }
+            Ok(())
+        }
+    }
+}
+
+fn cmd_export(cfg: Option<PathBuf>) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+
+    if !config_path.exists() {
+        anyhow::bail!(
+            "config file not found: {}\nrun `kort init` to generate a template",
+            config_path.display()
+        );
+    }
+
+    let lines = import::export(&config_path)?;
+    for line in lines {
+        println!("{}", line);
+    }
+    Ok(())
+}
+
+fn require_config(config_path: &std::path::Path) -> Result<()> {
+    if !config_path.exists() {
+        anyhow::bail!(
+            "config file not found: {}\nrun `kort init` to generate a template",
+            config_path.display()
+        );
+    }
     Ok(())
 }
 
@@ -378,6 +777,8 @@ fn cmd_init() -> Result<()> {
 
 [settings]
 strict = false  # true: treat suffix conflicts as errors
+# prefixes = ["sudo", "doas"]  # commands that preserve command position
+# remind = false  # remind when abbreviation could have been used
 
 # Regular abbreviation (expand only at command position)
 [[abbr]]
@@ -397,6 +798,12 @@ expansion = "git push"
 # keyword = "NE"
 # expansion = "2>/dev/null"
 # global = true
+
+# Command-scoped abbreviation (expand only after specific command)
+# [[abbr]]
+# keyword = "co"
+# expansion = "checkout"
+# command = "git"
 
 # Context abbreviation (with context condition)
 # [[abbr]]

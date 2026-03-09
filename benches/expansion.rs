@@ -8,10 +8,7 @@ fn generate_abbreviations(count: usize) -> Vec<Abbreviation> {
         .map(|i| Abbreviation {
             keyword: format!("abbr{}", i),
             expansion: format!("expanded command {} with args", i),
-            global: false,
-            evaluate: false,
-            allow_conflict: false,
-            context: None,
+            ..Default::default()
         })
         .collect()
 }
@@ -28,7 +25,7 @@ fn bench_expansion(c: &mut Criterion) {
                 lbuffer: format!("abbr{}", size / 2),
                 rbuffer: String::new(),
             };
-            b.iter(|| expand(black_box(&input), black_box(m)));
+            b.iter(|| expand(black_box(&input), black_box(m), black_box(&[])));
         });
     }
 
@@ -41,9 +38,7 @@ fn bench_global_expansion(c: &mut Criterion) {
             keyword: format!("G{}", i),
             expansion: format!("global expansion {}", i),
             global: true,
-            evaluate: false,
-            allow_conflict: false,
-            context: None,
+            ..Default::default()
         })
         .collect();
 
@@ -54,7 +49,7 @@ fn bench_global_expansion(c: &mut Criterion) {
             lbuffer: "echo hello G50".to_string(),
             rbuffer: String::new(),
         };
-        b.iter(|| expand(black_box(&input), black_box(&m)));
+        b.iter(|| expand(black_box(&input), black_box(&m), black_box(&[])));
     });
 }
 
@@ -62,10 +57,7 @@ fn bench_placeholder(c: &mut Criterion) {
     let abbrs = vec![Abbreviation {
         keyword: "gc".to_string(),
         expansion: "git commit -m '{{message}}'".to_string(),
-        global: false,
-        evaluate: false,
-        allow_conflict: false,
-        context: None,
+        ..Default::default()
     }];
 
     let m = matcher::build(&abbrs);
@@ -75,7 +67,7 @@ fn bench_placeholder(c: &mut Criterion) {
             lbuffer: "gc".to_string(),
             rbuffer: String::new(),
         };
-        b.iter(|| expand(black_box(&input), black_box(&m)));
+        b.iter(|| expand(black_box(&input), black_box(&m), black_box(&[])));
     });
 }
 

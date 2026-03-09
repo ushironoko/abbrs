@@ -42,7 +42,11 @@ pub fn compile(config_path: &Path, output_path: &Path, strict: bool) -> Result<C
 
     // 6. Build Matcher and write binary cache
     let matcher = matcher::build(&cfg.abbr);
-    cache::write(output_path, &matcher, config_path)?;
+    let settings = cache::CachedSettings {
+        remind: cfg.settings.remind,
+        prefixes: cfg.settings.prefixes.clone(),
+    };
+    cache::write(output_path, &matcher, &settings, config_path)?;
 
     Ok(CompileResult {
         warnings,
@@ -176,5 +180,31 @@ expansion = "some command"
 
         let result = compile(&config_path, &cache_path, false);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_compile_with_settings() {
+        let dir = TempDir::new().unwrap();
+        let config_path = write_config(
+            &dir,
+            r#"
+[settings]
+prefixes = ["sudo", "doas"]
+remind = true
+
+[[abbr]]
+keyword = "g"
+expansion = "git"
+"#,
+        );
+        let cache_path = dir.path().join("kort.cache");
+
+        let result = compile(&config_path, &cache_path, false).unwrap();
+        assert_eq!(result.abbr_count, 1);
+
+        // Verify settings are stored in cache
+        let loaded = cache::read(&cache_path).unwrap();
+        assert!(loaded.settings.remind);
+        assert_eq!(loaded.settings.prefixes, vec!["sudo", "doas"]);
     }
 }

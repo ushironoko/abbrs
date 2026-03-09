@@ -27,6 +27,21 @@ kort-expand-space() {
         zle self-insert
       fi
       ;;
+    function)
+      # Shell function call
+      if ! whence -w "$out[2]" >/dev/null 2>&1; then
+        zle self-insert
+        return
+      fi
+      local result
+      result=$("$out[2]" "$out[3]" 2>/dev/null)
+      if [[ -n $result ]]; then
+        BUFFER="${out[4]}${result}${out[5]}"
+        CURSOR=$(( ${#out[4]} + ${#result} ))
+      else
+        zle self-insert
+      fi
+      ;;
     stale_cache)
       # Recompile if cache is stale
       kort compile 2>/dev/null
@@ -63,6 +78,15 @@ kort-expand-accept() {
         BUFFER="${out[3]}${result}${out[4]}"
       fi
       ;;
+    function)
+      if whence -w "$out[2]" >/dev/null 2>&1; then
+        local result
+        result=$("$out[2]" "$out[3]" 2>/dev/null)
+        if [[ -n $result ]]; then
+          BUFFER="${out[4]}${result}${out[5]}"
+        fi
+      fi
+      ;;
     stale_cache)
       kort compile 2>/dev/null
       out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
@@ -71,6 +95,13 @@ kort-expand-accept() {
       fi
       ;;
   esac
+
+  # Check for reminders before accepting
+  local remind_msg
+  remind_msg=$(kort remind --buffer="$BUFFER" 2>/dev/null)
+  if [[ -n $remind_msg ]]; then
+    zle -M "$remind_msg"
+  fi
 
   zle accept-line
 }
@@ -88,12 +119,19 @@ kort-next-placeholder() {
   fi
 }
 
+# Literal space (no expansion)
+kort-literal-space() {
+  zle self-insert
+}
+
 # Register widgets
 zle -N kort-expand-space
 zle -N kort-expand-accept
 zle -N kort-next-placeholder
+zle -N kort-literal-space
 
 # Key bindings
 bindkey " " kort-expand-space
 bindkey "^M" kort-expand-accept
 bindkey "^I" kort-next-placeholder
+bindkey "^ " kort-literal-space

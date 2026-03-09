@@ -18,6 +18,13 @@ pub enum ExpandOutput {
         prefix: String,
         rbuffer: String,
     },
+    /// Shell function call required
+    Function {
+        function_name: String,
+        matched_token: String,
+        prefix: String,
+        rbuffer: String,
+    },
     /// Cache is stale
     StaleCache,
 }
@@ -40,6 +47,18 @@ impl fmt::Display for ExpandOutput {
             } => {
                 writeln!(f, "evaluate")?;
                 writeln!(f, "{}", command)?;
+                writeln!(f, "{}", prefix)?;
+                write!(f, "{}", rbuffer)
+            }
+            ExpandOutput::Function {
+                function_name,
+                matched_token,
+                prefix,
+                rbuffer,
+            } => {
+                writeln!(f, "function")?;
+                writeln!(f, "{}", function_name)?;
+                writeln!(f, "{}", matched_token)?;
                 writeln!(f, "{}", prefix)?;
                 write!(f, "{}", rbuffer)
             }
@@ -106,6 +125,18 @@ mod tests {
         };
         let formatted = output.to_string();
         assert_eq!(formatted, "evaluate\ndate +%Y-%m-%d\necho \n");
+    }
+
+    #[test]
+    fn test_expand_output_function_display() {
+        let output = ExpandOutput::Function {
+            function_name: "my_func".to_string(),
+            matched_token: "mf".to_string(),
+            prefix: "echo ".to_string(),
+            rbuffer: "".to_string(),
+        };
+        let formatted = output.to_string();
+        assert_eq!(formatted, "function\nmy_func\nmf\necho \n");
     }
 
     #[test]

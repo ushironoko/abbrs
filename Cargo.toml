@@ -25,6 +25,7 @@ rustc-hash = "2.1.1"
 bitcode = { version = "0.6.9", features = ["serde"] }
 xdg = "2.5.2"
 crossterm = "0.28.1"
+toml_edit = "0.22.26"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
