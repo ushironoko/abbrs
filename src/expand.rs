@@ -168,24 +168,37 @@ fn build_output(prefix: &str, abbr: &CompiledAbbr, matched_keyword: &str, rbuffe
     }
 }
 
+/// Check if the buffer starts with the expansion followed by a word boundary (space or end)
+fn starts_with_at_boundary(buffer: &str, expansion: &str) -> bool {
+    if !buffer.starts_with(expansion) {
+        return false;
+    }
+    // After the expansion, must be end-of-string or whitespace
+    buffer[expansion.len()..]
+        .chars()
+        .next()
+        .map_or(true, |c| c.is_whitespace())
+}
+
 /// Check if the buffer contains a command that could have been abbreviated
 /// Returns the first reminder found (keyword that could have been used)
 pub fn check_remind(buffer: &str, matcher_data: &Matcher) -> Option<(String, String)> {
     // Extract the first word of the buffer (the command)
-    let first_word = buffer.trim().split_whitespace().next()?;
+    let trimmed = buffer.trim();
+    let first_word = trimmed.split_whitespace().next()?;
 
     // Check if this command matches any expansion's first word
     if let Some(keywords) = matcher_data.remind_index.get(first_word) {
-        // Check if the full expansion matches
+        // Check if the full expansion matches at a word boundary
         for keyword in keywords {
             // Look up the abbreviation to get its full expansion
             if let Some(abbr) = matcher::lookup_regular(matcher_data, keyword) {
-                if buffer.trim().starts_with(&abbr.expansion) {
+                if starts_with_at_boundary(trimmed, &abbr.expansion) {
                     return Some((keyword.clone(), abbr.expansion.clone()));
                 }
             }
             if let Some(abbr) = matcher::lookup_global(matcher_data, keyword) {
-                if buffer.trim().starts_with(&abbr.expansion) {
+                if starts_with_at_boundary(trimmed, &abbr.expansion) {
                     return Some((keyword.clone(), abbr.expansion.clone()));
                 }
             }
@@ -596,5 +609,40 @@ mod tests {
             }
             other => panic!("Expected Function, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_check_remind_exact_match() {
+        let matcher = build_test_matcher();
+        // "git push" starts with "git" followed by a space → should remind about "g"
+        let result = check_remind("git push", &matcher);
+        assert!(result.is_some());
+        let (keyword, _) = result.unwrap();
+        assert_eq!(keyword, "g");
+    }
+
+    #[test]
+    fn test_check_remind_no_false_positive_on_prefix() {
+        let matcher = build_test_matcher();
+        // "gitlab" starts with "git" but NOT at a word boundary → should NOT remind
+        let result = check_remind("gitlab push", &matcher);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_check_remind_exact_command() {
+        let matcher = build_test_matcher();
+        // "git" alone (exact match) → should remind
+        let result = check_remind("git", &matcher);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_starts_with_at_boundary() {
+        assert!(starts_with_at_boundary("git push", "git"));
+        assert!(starts_with_at_boundary("git", "git"));
+        assert!(!starts_with_at_boundary("gitlab", "git"));
+        assert!(!starts_with_at_boundary("gitk", "git"));
+        assert!(starts_with_at_boundary("git\tpush", "git"));
     }
 }
