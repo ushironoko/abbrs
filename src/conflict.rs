@@ -290,10 +290,7 @@ mod tests {
         Abbreviation {
             keyword: keyword.to_string(),
             expansion: "dummy".to_string(),
-            global: false,
-            evaluate: false,
-            allow_conflict: false,
-            context: None,
+            ..Default::default()
         }
     }
 
@@ -301,10 +298,8 @@ mod tests {
         Abbreviation {
             keyword: keyword.to_string(),
             expansion: "dummy".to_string(),
-            global: false,
-            evaluate: false,
             allow_conflict: true,
-            context: None,
+            ..Default::default()
         }
     }
 

@@ -8,10 +8,7 @@ fn generate_abbreviations(count: usize) -> Vec<Abbreviation> {
         .map(|i| Abbreviation {
             keyword: format!("abbr{}", i),
             expansion: format!("expanded {}", i),
-            global: false,
-            evaluate: false,
-            allow_conflict: false,
-            context: None,
+            ..Default::default()
         })
         .collect()
 }

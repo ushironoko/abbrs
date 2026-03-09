@@ -1,50 +1,58 @@
-use crate::matcher::CompiledAbbr;
+use crate::matcher::{AbbrScope, CompiledAbbr};
 use regex::Regex;
+use rustc_hash::FxHashMap;
 
 /// Check context conditions
-/// Match against lbuffer/rbuffer regex patterns
+/// Match against lbuffer/rbuffer regex patterns from AbbrScope::Contextual
 pub fn matches_context(abbr: &CompiledAbbr, lbuffer: &str, rbuffer: &str) -> bool {
-    if let Some(ref pattern) = abbr.lbuffer_pattern {
-        match Regex::new(pattern) {
-            Ok(re) => {
-                if !re.is_match(lbuffer) {
-                    return false;
+    match &abbr.scope {
+        AbbrScope::Contextual {
+            lbuffer: lb_pat,
+            rbuffer: rb_pat,
+        } => {
+            if let Some(ref pattern) = lb_pat {
+                match Regex::new(pattern) {
+                    Ok(re) => {
+                        if !re.is_match(lbuffer) {
+                            return false;
+                        }
+                    }
+                    Err(_) => return false,
                 }
             }
-            Err(_) => return false,
-        }
-    }
-
-    if let Some(ref pattern) = abbr.rbuffer_pattern {
-        match Regex::new(pattern) {
-            Ok(re) => {
-                if !re.is_match(rbuffer) {
-                    return false;
+            if let Some(ref pattern) = rb_pat {
+                match Regex::new(pattern) {
+                    Ok(re) => {
+                        if !re.is_match(rbuffer) {
+                            return false;
+                        }
+                    }
+                    Err(_) => return false,
                 }
             }
-            Err(_) => return false,
+            true
         }
+        _ => true,
     }
-
-    true
 }
 
-/// Find matching contextual abbreviation
+/// Find matching contextual abbreviation from HashMap
 pub fn find_contextual_match<'a>(
-    contextual: &'a [CompiledAbbr],
+    contextual: &'a FxHashMap<String, Vec<CompiledAbbr>>,
     keyword: &str,
     lbuffer: &str,
     rbuffer: &str,
 ) -> Option<&'a CompiledAbbr> {
-    contextual.iter().find(|abbr| {
-        abbr.keyword == keyword && matches_context(abbr, lbuffer, rbuffer)
-    })
+    contextual
+        .get(keyword)?
+        .iter()
+        .find(|abbr| matches_context(abbr, lbuffer, rbuffer))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::matcher::CompiledAbbr;
+    use crate::matcher::{AbbrScope, CompiledAbbr};
 
     fn make_contextual(
         keyword: &str,
@@ -55,10 +63,11 @@ mod tests {
         CompiledAbbr {
             keyword: keyword.to_string(),
             expansion: expansion.to_string(),
-            global: false,
-            evaluate: false,
-            lbuffer_pattern: lbuffer.map(|s| s.to_string()),
-            rbuffer_pattern: rbuffer.map(|s| s.to_string()),
+            scope: AbbrScope::Contextual {
+                lbuffer: lbuffer.map(|s| s.to_string()),
+                rbuffer: rbuffer.map(|s| s.to_string()),
+            },
+            ..Default::default()
         }
     }
 
@@ -92,16 +101,23 @@ mod tests {
 
     #[test]
     fn test_no_context_always_matches() {
-        let abbr = make_contextual("g", "git", None, None);
+        let abbr = CompiledAbbr {
+            keyword: "g".to_string(),
+            expansion: "git".to_string(),
+            ..Default::default()
+        };
         assert!(matches_context(&abbr, "anything", "anything"));
     }
 
     #[test]
     fn test_find_contextual_match() {
-        let contextual = vec![
+        let mut contextual: FxHashMap<String, Vec<CompiledAbbr>> = FxHashMap::default();
+        contextual.entry("main".to_string()).or_default().push(
             make_contextual("main", "main --branch", Some("^git (checkout|switch)"), None),
+        );
+        contextual.entry("main".to_string()).or_default().push(
             make_contextual("main", "int main()", Some("^#include"), None),
-        ];
+        );
 
         let result = find_contextual_match(&contextual, "main", "git checkout ", "");
         assert!(result.is_some());

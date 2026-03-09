@@ -14,16 +14,28 @@ pub struct Config {
 pub struct Settings {
     #[serde(default)]
     pub strict: bool,
+    #[serde(default)]
+    pub prefixes: Vec<String>,
+    #[serde(default)]
+    pub remind: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Abbreviation {
+    #[serde(default)]
     pub keyword: String,
+    #[serde(default)]
     pub expansion: String,
     #[serde(default)]
     pub global: bool,
     #[serde(default)]
     pub evaluate: bool,
+    #[serde(default)]
+    pub function: bool,
+    #[serde(default)]
+    pub regex: bool,
+    #[serde(default)]
+    pub command: Option<String>,
     #[serde(default)]
     pub allow_conflict: bool,
     #[serde(default)]
@@ -66,6 +78,27 @@ fn validate(config: &Config) -> Result<()> {
                 "keyword \"{}\" must not contain spaces",
                 abbr.keyword
             );
+        }
+        // validate mutually exclusive options
+        if abbr.function && abbr.evaluate {
+            anyhow::bail!(
+                "keyword \"{}\" cannot have both function and evaluate",
+                abbr.keyword
+            );
+        }
+        if abbr.command.is_some() && abbr.global {
+            anyhow::bail!(
+                "keyword \"{}\" cannot have both command and global",
+                abbr.keyword
+            );
+        }
+        if abbr.regex {
+            regex::Regex::new(&abbr.keyword).with_context(|| {
+                format!(
+                    "keyword \"{}\" has regex = true but invalid regex pattern",
+                    abbr.keyword
+                )
+            })?;
         }
         // validate context regex patterns
         if let Some(ctx) = &abbr.context {
@@ -241,6 +274,71 @@ context.lbuffer = "[invalid"
         let result = parse(toml);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid context.lbuffer regex"));
+    }
+
+    #[test]
+    fn test_validate_function_and_evaluate_exclusive() {
+        let toml = r#"
+[[abbr]]
+keyword = "x"
+expansion = "y"
+function = true
+evaluate = true
+"#;
+        let result = parse(toml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("function and evaluate"));
+    }
+
+    #[test]
+    fn test_validate_command_and_global_exclusive() {
+        let toml = r#"
+[[abbr]]
+keyword = "x"
+expansion = "y"
+command = "git"
+global = true
+"#;
+        let result = parse(toml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("command and global"));
+    }
+
+    #[test]
+    fn test_validate_regex_keyword_pattern() {
+        let toml = r#"
+[[abbr]]
+keyword = "[invalid"
+expansion = "y"
+regex = true
+"#;
+        let result = parse(toml);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid regex pattern"));
+    }
+
+    #[test]
+    fn test_parse_new_fields() {
+        let toml = r#"
+[settings]
+prefixes = ["sudo", "doas"]
+remind = true
+
+[[abbr]]
+keyword = "co"
+expansion = "checkout"
+command = "git"
+
+[[abbr]]
+keyword = "mf"
+expansion = "my_func"
+function = true
+"#;
+        let config = parse(toml).unwrap();
+        assert_eq!(config.settings.prefixes, vec!["sudo", "doas"]);
+        assert!(config.settings.remind);
+        assert_eq!(config.abbr[0].command, Some("git".to_string()));
+        assert!(config.abbr[1].function);
     }
 
     #[test]

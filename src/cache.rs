@@ -6,7 +6,14 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 /// Cache format version
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
+
+/// Cached settings (stored in cache for expand-time access)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CachedSettings {
+    pub remind: bool,
+    pub prefixes: Vec<String>,
+}
 
 /// Binary cache
 #[derive(Debug, Serialize, Deserialize)]
@@ -14,6 +21,7 @@ pub struct CompiledCache {
     pub version: u32,
     pub config_hash: u64,
     pub matcher: Matcher,
+    pub settings: CachedSettings,
 }
 
 /// Compute hash of config file content
@@ -24,7 +32,12 @@ pub fn hash_config(content: &str) -> u64 {
 }
 
 /// Write cache to file
-pub fn write(output_path: &Path, matcher: &Matcher, config_path: &Path) -> Result<()> {
+pub fn write(
+    output_path: &Path,
+    matcher: &Matcher,
+    settings: &CachedSettings,
+    config_path: &Path,
+) -> Result<()> {
     let config_content = std::fs::read_to_string(config_path)
         .with_context(|| format!("failed to read config file: {}", config_path.display()))?;
 
@@ -32,6 +45,7 @@ pub fn write(output_path: &Path, matcher: &Matcher, config_path: &Path) -> Resul
         version: CACHE_VERSION,
         config_hash: hash_config(&config_content),
         matcher: matcher.clone(),
+        settings: settings.clone(),
     };
 
     // Create parent directories
@@ -53,11 +67,11 @@ pub fn read(cache_path: &Path) -> Result<CompiledCache> {
         .with_context(|| format!("failed to read cache file: {}", cache_path.display()))?;
 
     let cache: CompiledCache =
-        bitcode::deserialize(&data).context("failed to deserialize cache")?;
+        bitcode::deserialize(&data).context("failed to deserialize cache (may need recompile)")?;
 
     if cache.version != CACHE_VERSION {
         anyhow::bail!(
-            "cache version mismatch (expected: {}, got: {})",
+            "cache version mismatch (expected: {}, got: {}). Run `kort compile` to update.",
             CACHE_VERSION,
             cache.version
         );
@@ -114,13 +128,36 @@ expansion = "git"
         let cache_path = dir.path().join("kort.cache");
 
         let matcher = Matcher::new();
-        write(&cache_path, &matcher, &config_path).unwrap();
+        let settings = CachedSettings::default();
+        write(&cache_path, &matcher, &settings, &config_path).unwrap();
 
         let loaded = read(&cache_path).unwrap();
         assert_eq!(loaded.version, CACHE_VERSION);
         assert!(loaded.matcher.regular.is_empty());
         assert!(loaded.matcher.global.is_empty());
         assert!(loaded.matcher.contextual.is_empty());
+        assert!(loaded.matcher.command_scoped.is_empty());
+        assert!(loaded.matcher.regex_abbrs.is_empty());
+        assert!(!loaded.settings.remind);
+        assert!(loaded.settings.prefixes.is_empty());
+    }
+
+    #[test]
+    fn test_write_and_read_roundtrip_with_settings() {
+        let dir = TempDir::new().unwrap();
+        let config_path = create_test_config(&dir);
+        let cache_path = dir.path().join("kort.cache");
+
+        let matcher = Matcher::new();
+        let settings = CachedSettings {
+            remind: true,
+            prefixes: vec!["sudo".to_string(), "doas".to_string()],
+        };
+        write(&cache_path, &matcher, &settings, &config_path).unwrap();
+
+        let loaded = read(&cache_path).unwrap();
+        assert!(loaded.settings.remind);
+        assert_eq!(loaded.settings.prefixes, vec!["sudo", "doas"]);
     }
 
     #[test]
@@ -130,7 +167,8 @@ expansion = "git"
         let cache_path = dir.path().join("kort.cache");
 
         let matcher = Matcher::new();
-        write(&cache_path, &matcher, &config_path).unwrap();
+        let settings = CachedSettings::default();
+        write(&cache_path, &matcher, &settings, &config_path).unwrap();
 
         let loaded = read(&cache_path).unwrap();
         assert!(is_fresh(&loaded, &config_path).unwrap());
@@ -143,7 +181,8 @@ expansion = "git"
         let cache_path = dir.path().join("kort.cache");
 
         let matcher = Matcher::new();
-        write(&cache_path, &matcher, &config_path).unwrap();
+        let settings = CachedSettings::default();
+        write(&cache_path, &matcher, &settings, &config_path).unwrap();
 
         // Modify config file
         std::fs::write(
@@ -183,7 +222,8 @@ expansion = "git commit"
         let cache_path = dir.path().join("nested").join("dir").join("kort.cache");
 
         let matcher = Matcher::new();
-        let result = write(&cache_path, &matcher, &config_path);
+        let settings = CachedSettings::default();
+        let result = write(&cache_path, &matcher, &settings, &config_path);
         assert!(result.is_ok());
         assert!(cache_path.exists());
     }

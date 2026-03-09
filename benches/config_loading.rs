@@ -40,7 +40,8 @@ fn bench_cache_read(c: &mut Criterion) {
         let cfg = config::parse(&toml).unwrap();
         let m = matcher::build(&cfg.abbr);
         let cache_path = dir.path().join("kort.cache");
-        cache::write(&cache_path, &m, &config_path).unwrap();
+        let settings = cache::CachedSettings::default();
+        cache::write(&cache_path, &m, &settings, &config_path).unwrap();
 
         group.bench_with_input(BenchmarkId::new("bitcode", size), &cache_path, |b, path| {
             b.iter(|| cache::read(black_box(path)).unwrap());

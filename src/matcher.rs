@@ -2,15 +2,38 @@ use crate::config::Abbreviation;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
+/// Expansion method
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub enum ExpandAction {
+    #[default]
+    Replace,
+    Evaluate,
+    Function,
+}
+
+/// Abbreviation scope
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub enum AbbrScope {
+    #[default]
+    Regular,
+    Global,
+    CommandScoped {
+        command: String,
+    },
+    Contextual {
+        lbuffer: Option<String>,
+        rbuffer: Option<String>,
+    },
+    RegexKeyword,
+}
+
 /// Compiled abbreviation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompiledAbbr {
     pub keyword: String,
     pub expansion: String,
-    pub global: bool,
-    pub evaluate: bool,
-    pub lbuffer_pattern: Option<String>,
-    pub rbuffer_pattern: Option<String>,
+    pub scope: AbbrScope,
+    pub action: ExpandAction,
 }
 
 /// HashMap-based matching engine
@@ -20,8 +43,14 @@ pub struct Matcher {
     pub regular: FxHashMap<String, Vec<CompiledAbbr>>,
     /// Global abbreviations (keyword -> compiled abbreviations)
     pub global: FxHashMap<String, Vec<CompiledAbbr>>,
-    /// Contextual abbreviations (require regex matching)
-    pub contextual: Vec<CompiledAbbr>,
+    /// Command-scoped abbreviations (command -> keyword -> compiled abbreviations)
+    pub command_scoped: FxHashMap<String, FxHashMap<String, Vec<CompiledAbbr>>>,
+    /// Contextual abbreviations (keyword -> compiled abbreviations, require regex matching)
+    pub contextual: FxHashMap<String, Vec<CompiledAbbr>>,
+    /// Regex-keyword abbreviations (keyword is a regex pattern)
+    pub regex_abbrs: Vec<CompiledAbbr>,
+    /// Reverse index for remind feature (expansion first word -> keyword)
+    pub remind_index: FxHashMap<String, Vec<String>>,
 }
 
 impl Matcher {
@@ -29,7 +58,10 @@ impl Matcher {
         Self {
             regular: FxHashMap::default(),
             global: FxHashMap::default(),
-            contextual: Vec::new(),
+            command_scoped: FxHashMap::default(),
+            contextual: FxHashMap::default(),
+            regex_abbrs: Vec::new(),
+            remind_index: FxHashMap::default(),
         }
     }
 }
@@ -40,35 +72,84 @@ impl Default for Matcher {
     }
 }
 
-/// Build Matcher from config
+/// Build Matcher from config abbreviations
 pub fn build(abbreviations: &[Abbreviation]) -> Matcher {
     let mut matcher = Matcher::new();
 
     for abbr in abbreviations {
+        let scope = if let Some(ref ctx) = abbr.context {
+            AbbrScope::Contextual {
+                lbuffer: ctx.lbuffer.clone(),
+                rbuffer: ctx.rbuffer.clone(),
+            }
+        } else if abbr.command.is_some() {
+            AbbrScope::CommandScoped {
+                command: abbr.command.clone().unwrap(),
+            }
+        } else if abbr.regex {
+            AbbrScope::RegexKeyword
+        } else if abbr.global {
+            AbbrScope::Global
+        } else {
+            AbbrScope::Regular
+        };
+
+        let action = if abbr.function {
+            ExpandAction::Function
+        } else if abbr.evaluate {
+            ExpandAction::Evaluate
+        } else {
+            ExpandAction::Replace
+        };
+
         let compiled = CompiledAbbr {
             keyword: abbr.keyword.clone(),
             expansion: abbr.expansion.clone(),
-            global: abbr.global,
-            evaluate: abbr.evaluate,
-            lbuffer_pattern: abbr.context.as_ref().and_then(|c| c.lbuffer.clone()),
-            rbuffer_pattern: abbr.context.as_ref().and_then(|c| c.rbuffer.clone()),
+            scope,
+            action,
         };
 
-        if compiled.lbuffer_pattern.is_some() || compiled.rbuffer_pattern.is_some() {
-            // Store contextual entries in separate list
-            matcher.contextual.push(compiled);
-        } else if abbr.global {
+        // Build remind index: map first word of expansion -> keyword
+        if let Some(first_word) = compiled.expansion.split_whitespace().next() {
             matcher
-                .global
-                .entry(abbr.keyword.clone())
+                .remind_index
+                .entry(first_word.to_string())
                 .or_default()
-                .push(compiled);
-        } else {
-            matcher
-                .regular
-                .entry(abbr.keyword.clone())
-                .or_default()
-                .push(compiled);
+                .push(compiled.keyword.clone());
+        }
+
+        match &compiled.scope {
+            AbbrScope::RegexKeyword => matcher.regex_abbrs.push(compiled),
+            AbbrScope::Contextual { .. } => {
+                matcher
+                    .contextual
+                    .entry(abbr.keyword.clone())
+                    .or_default()
+                    .push(compiled);
+            }
+            AbbrScope::CommandScoped { command } => {
+                matcher
+                    .command_scoped
+                    .entry(command.clone())
+                    .or_default()
+                    .entry(abbr.keyword.clone())
+                    .or_default()
+                    .push(compiled);
+            }
+            AbbrScope::Global => {
+                matcher
+                    .global
+                    .entry(abbr.keyword.clone())
+                    .or_default()
+                    .push(compiled);
+            }
+            AbbrScope::Regular => {
+                matcher
+                    .regular
+                    .entry(abbr.keyword.clone())
+                    .or_default()
+                    .push(compiled);
+            }
         }
     }
 
@@ -88,6 +169,19 @@ pub fn lookup_global<'a>(matcher: &'a Matcher, keyword: &str) -> Option<&'a Comp
     matcher.global.get(keyword).and_then(|abbrs| abbrs.first())
 }
 
+/// Look up keyword in command-scoped map (O(1))
+pub fn lookup_command_scoped<'a>(
+    matcher: &'a Matcher,
+    command: &str,
+    keyword: &str,
+) -> Option<&'a CompiledAbbr> {
+    matcher
+        .command_scoped
+        .get(command)
+        .and_then(|kw_map| kw_map.get(keyword))
+        .and_then(|abbrs| abbrs.first())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,10 +191,7 @@ mod tests {
         Abbreviation {
             keyword: keyword.to_string(),
             expansion: expansion.to_string(),
-            global: false,
-            evaluate: false,
-            allow_conflict: false,
-            context: None,
+            ..Default::default()
         }
     }
 
@@ -109,9 +200,7 @@ mod tests {
             keyword: keyword.to_string(),
             expansion: expansion.to_string(),
             global: true,
-            evaluate: false,
-            allow_conflict: false,
-            context: None,
+            ..Default::default()
         }
     }
 
@@ -119,13 +208,24 @@ mod tests {
         Abbreviation {
             keyword: keyword.to_string(),
             expansion: expansion.to_string(),
-            global: false,
-            evaluate: false,
-            allow_conflict: false,
             context: Some(AbbreviationContext {
                 lbuffer: Some(lbuffer.to_string()),
                 rbuffer: None,
             }),
+            ..Default::default()
+        }
+    }
+
+    fn make_command_scoped_abbr(
+        keyword: &str,
+        expansion: &str,
+        command: &str,
+    ) -> Abbreviation {
+        Abbreviation {
+            keyword: keyword.to_string(),
+            expansion: expansion.to_string(),
+            command: Some(command.to_string()),
+            ..Default::default()
         }
     }
 
@@ -136,6 +236,8 @@ mod tests {
         assert_eq!(matcher.regular.len(), 2);
         assert!(matcher.global.is_empty());
         assert!(matcher.contextual.is_empty());
+        assert!(matcher.command_scoped.is_empty());
+        assert!(matcher.regex_abbrs.is_empty());
     }
 
     #[test]
@@ -161,16 +263,28 @@ mod tests {
     }
 
     #[test]
+    fn test_build_command_scoped() {
+        let abbrs = vec![make_command_scoped_abbr("co", "checkout", "git")];
+        let matcher = build(&abbrs);
+        assert!(matcher.regular.is_empty());
+        assert!(matcher.global.is_empty());
+        assert_eq!(matcher.command_scoped.len(), 1);
+        assert!(matcher.command_scoped.contains_key("git"));
+    }
+
+    #[test]
     fn test_build_mixed() {
         let abbrs = vec![
             make_abbr("g", "git"),
             make_global_abbr("NE", "2>/dev/null"),
             make_contextual_abbr("main", "main --branch", "^git checkout"),
+            make_command_scoped_abbr("co", "checkout", "git"),
         ];
         let matcher = build(&abbrs);
         assert_eq!(matcher.regular.len(), 1);
         assert_eq!(matcher.global.len(), 1);
         assert_eq!(matcher.contextual.len(), 1);
+        assert_eq!(matcher.command_scoped.len(), 1);
     }
 
     #[test]
@@ -204,10 +318,103 @@ mod tests {
     }
 
     #[test]
+    fn test_lookup_command_scoped() {
+        let abbrs = vec![make_command_scoped_abbr("co", "checkout", "git")];
+        let matcher = build(&abbrs);
+
+        let result = lookup_command_scoped(&matcher, "git", "co");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().expansion, "checkout");
+
+        let result = lookup_command_scoped(&matcher, "git", "missing");
+        assert!(result.is_none());
+
+        let result = lookup_command_scoped(&matcher, "npm", "co");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_expand_action_conversion() {
+        let abbr_eval = Abbreviation {
+            keyword: "T".to_string(),
+            expansion: "date".to_string(),
+            evaluate: true,
+            ..Default::default()
+        };
+        let abbr_func = Abbreviation {
+            keyword: "F".to_string(),
+            expansion: "my_func".to_string(),
+            function: true,
+            ..Default::default()
+        };
+        let abbr_replace = Abbreviation {
+            keyword: "g".to_string(),
+            expansion: "git".to_string(),
+            ..Default::default()
+        };
+
+        let matcher = build(&[abbr_eval, abbr_func, abbr_replace]);
+
+        let t = lookup_regular(&matcher, "T").unwrap();
+        assert_eq!(t.action, ExpandAction::Evaluate);
+
+        let f = lookup_regular(&matcher, "F").unwrap();
+        assert_eq!(f.action, ExpandAction::Function);
+
+        let g = lookup_regular(&matcher, "g").unwrap();
+        assert_eq!(g.action, ExpandAction::Replace);
+    }
+
+    #[test]
+    fn test_abbr_scope_conversion() {
+        let abbrs = vec![
+            make_abbr("g", "git"),
+            make_global_abbr("NE", "2>/dev/null"),
+            make_contextual_abbr("main", "main --branch", "^git checkout"),
+            make_command_scoped_abbr("co", "checkout", "git"),
+        ];
+        let matcher = build(&abbrs);
+
+        let g = lookup_regular(&matcher, "g").unwrap();
+        assert_eq!(g.scope, AbbrScope::Regular);
+
+        let ne = lookup_global(&matcher, "NE").unwrap();
+        assert_eq!(ne.scope, AbbrScope::Global);
+
+        let main_ctx = matcher.contextual.get("main").unwrap().first().unwrap();
+        assert!(matches!(main_ctx.scope, AbbrScope::Contextual { .. }));
+
+        let co = lookup_command_scoped(&matcher, "git", "co").unwrap();
+        assert!(matches!(co.scope, AbbrScope::CommandScoped { .. }));
+    }
+
+    #[test]
     fn test_matcher_default() {
         let matcher = Matcher::default();
         assert!(matcher.regular.is_empty());
         assert!(matcher.global.is_empty());
         assert!(matcher.contextual.is_empty());
+        assert!(matcher.command_scoped.is_empty());
+        assert!(matcher.regex_abbrs.is_empty());
+        assert!(matcher.remind_index.is_empty());
+    }
+
+    #[test]
+    fn test_remind_index() {
+        let abbrs = vec![
+            make_abbr("g", "git"),
+            make_abbr("gc", "git commit"),
+            make_global_abbr("NE", "2>/dev/null"),
+        ];
+        let matcher = build(&abbrs);
+
+        // "git" should map to both "g" and "gc"
+        let git_entries = matcher.remind_index.get("git").unwrap();
+        assert!(git_entries.contains(&"g".to_string()));
+        assert!(git_entries.contains(&"gc".to_string()));
+
+        // "2>/dev/null" should map to "NE"
+        let ne_entries = matcher.remind_index.get("2>/dev/null").unwrap();
+        assert!(ne_entries.contains(&"NE".to_string()));
     }
 }
