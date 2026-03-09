@@ -1,4 +1,4 @@
-use crate::context;
+use crate::context::{self, RegexCache};
 use crate::matcher::{self, CompiledAbbr, ExpandAction, Matcher};
 use crate::output::ExpandOutput;
 use crate::placeholder;
@@ -82,10 +82,11 @@ fn is_command_or_prefix_position(segment: &str, keyword: &str, prefixes: &[Strin
     if trimmed == keyword {
         return true;
     }
-    // Check if keyword follows a known prefix
+    // Check if keyword follows a known prefix (with word boundary enforcement)
     prefixes.iter().any(|p| {
         if let Some(after) = trimmed.strip_prefix(p.as_str()) {
-            after.trim() == keyword
+            // Ensure prefix is followed by whitespace (word boundary)
+            after.starts_with(char::is_whitespace) && after.trim() == keyword
         } else {
             false
         }
@@ -93,16 +94,25 @@ fn is_command_or_prefix_position(segment: &str, keyword: &str, prefixes: &[Strin
 }
 
 /// Perform expansion
-pub fn expand(input: &ExpandInput, matcher_data: &Matcher, prefixes: &[String]) -> ExpandOutput {
+pub fn expand(
+    input: &ExpandInput,
+    matcher_data: &Matcher,
+    prefixes: &[String],
+    regex_cache: &RegexCache,
+) -> ExpandOutput {
     let Some((prefix, keyword)) = extract_keyword(&input.lbuffer) else {
         return ExpandOutput::NoMatch;
     };
 
     // 1. Search contextual abbreviations (highest priority, skip if none registered)
     if !matcher_data.contextual.is_empty() {
-        if let Some(abbr) =
-            context::find_contextual_match(&matcher_data.contextual, keyword, prefix, &input.rbuffer)
-        {
+        if let Some(abbr) = context::find_contextual_match(
+            &matcher_data.contextual,
+            keyword,
+            prefix,
+            &input.rbuffer,
+            regex_cache,
+        ) {
             return build_output(prefix, abbr, keyword, &input.rbuffer);
         }
     }
@@ -144,9 +154,9 @@ pub fn expand(input: &ExpandInput, matcher_data: &Matcher, prefixes: &[String]) 
         return build_output(prefix, abbr, keyword, &input.rbuffer);
     }
 
-    // 5. Regex-keyword abbreviations (linear scan, only when not matched above)
+    // 5. Regex-keyword abbreviations (pre-compiled regex lookup, linear scan)
     for abbr in &matcher_data.regex_abbrs {
-        if let Ok(re) = regex::Regex::new(&abbr.keyword) {
+        if let Some(re) = regex_cache.get(&abbr.keyword) {
             if re.is_match(keyword) {
                 return build_output(prefix, abbr, keyword, &input.rbuffer);
             }
@@ -172,12 +182,15 @@ fn build_output(prefix: &str, abbr: &CompiledAbbr, matched_keyword: &str, rbuffe
         ExpandAction::Replace => {
             let expansion = &abbr.expansion;
 
-            // Placeholder processing
-            let new_lbuffer = format!("{}{}", prefix, expansion);
-            let full_buffer = format!("{}{}", new_lbuffer, rbuffer);
+            // Build full buffer in a single allocation
+            let new_lbuffer_len = prefix.len() + expansion.len();
+            let mut buffer = String::with_capacity(new_lbuffer_len + rbuffer.len());
+            buffer.push_str(prefix);
+            buffer.push_str(expansion);
+            buffer.push_str(rbuffer);
 
             let placeholder_result =
-                placeholder::apply_first_placeholder(&full_buffer, new_lbuffer.len());
+                placeholder::apply_first_placeholder(buffer, new_lbuffer_len);
 
             ExpandOutput::Success {
                 buffer: placeholder_result.text,
@@ -279,6 +292,10 @@ mod tests {
         vec![]
     }
 
+    fn cache_for(matcher: &Matcher) -> RegexCache {
+        RegexCache::from_matcher(matcher)
+    }
+
     #[test]
     fn test_extract_keyword_simple() {
         let (prefix, keyword) = extract_keyword("g").unwrap();
@@ -288,7 +305,6 @@ mod tests {
 
     #[test]
     fn test_extract_keyword_with_trailing_space() {
-        // When trailing is only spaces, trim_end removes them and returns the last token
         let (prefix, keyword) = extract_keyword("git commit ").unwrap();
         assert_eq!(prefix, "git ");
         assert_eq!(keyword, "commit");
@@ -334,7 +350,6 @@ mod tests {
 
     #[test]
     fn test_last_command_segment_quoted() {
-        // Pipe inside quotes should not split
         assert_eq!(
             last_command_segment("echo \"hello | world\"").trim(),
             "echo \"hello | world\""
@@ -351,13 +366,23 @@ mod tests {
     }
 
     #[test]
+    fn test_prefix_word_boundary() {
+        let prefixes = vec!["sudo".to_string()];
+        // "sudoku g" should NOT match prefix "sudo" (no word boundary)
+        assert!(!is_command_or_prefix_position("sudoku g", "g", &prefixes));
+        // "sudo g" should match
+        assert!(is_command_or_prefix_position("sudo g", "g", &prefixes));
+    }
+
+    #[test]
     fn test_expand_regular_command_position() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "g".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "git");
                 assert_eq!(cursor, 3);
@@ -369,12 +394,12 @@ mod tests {
     #[test]
     fn test_expand_regular_not_command_position() {
         let matcher = build_test_matcher();
-        // "g" is regular, so it only matches in command position
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "echo g".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::NoMatch => {}
             other => panic!("Expected NoMatch, got {:?}", other),
         }
@@ -383,11 +408,12 @@ mod tests {
     #[test]
     fn test_expand_global() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "echo hello NE".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "echo hello 2>/dev/null");
                 assert_eq!(cursor, 22);
@@ -399,11 +425,12 @@ mod tests {
     #[test]
     fn test_expand_with_placeholder() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "gc".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "git commit -m ''");
                 assert_eq!(cursor, 15);
@@ -415,11 +442,12 @@ mod tests {
     #[test]
     fn test_expand_contextual() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "git checkout main".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "git checkout main --branch");
                 assert_eq!(cursor, 26);
@@ -431,13 +459,12 @@ mod tests {
     #[test]
     fn test_expand_contextual_no_match() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "git commit main".to_string(),
             rbuffer: "".to_string(),
         };
-        // "main" has context, but lbuffer is "git commit " so it doesn't match
-        // "main" is also not in regular, so no match
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::NoMatch => {}
             other => panic!("Expected NoMatch, got {:?}", other),
         }
@@ -446,11 +473,12 @@ mod tests {
     #[test]
     fn test_expand_evaluate() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "echo TODAY".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Evaluate {
                 command,
                 prefix,
@@ -467,11 +495,12 @@ mod tests {
     #[test]
     fn test_expand_no_match() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "unknown_command".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::NoMatch => {}
             other => panic!("Expected NoMatch, got {:?}", other),
         }
@@ -480,11 +509,12 @@ mod tests {
     #[test]
     fn test_expand_empty_input() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::NoMatch => {}
             other => panic!("Expected NoMatch, got {:?}", other),
         }
@@ -493,11 +523,12 @@ mod tests {
     #[test]
     fn test_expand_with_rbuffer() {
         let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "g".to_string(),
             rbuffer: " --help".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "git --help");
                 assert_eq!(cursor, 3);
@@ -517,11 +548,12 @@ mod tests {
             },
         ];
         let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "git co".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "git checkout");
                 assert_eq!(cursor, 12);
@@ -541,11 +573,12 @@ mod tests {
             },
         ];
         let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "npm co".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::NoMatch => {}
             other => panic!("Expected NoMatch, got {:?}", other),
         }
@@ -562,11 +595,12 @@ mod tests {
             },
         ];
         let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "echo hello | git co".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "echo hello | git checkout");
                 assert_eq!(cursor, 25);
@@ -585,12 +619,13 @@ mod tests {
             },
         ];
         let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
         let prefixes = vec!["sudo".to_string()];
         let input = ExpandInput {
             lbuffer: "sudo g".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &prefixes) {
+        match expand(&input, &matcher, &prefixes, &rc) {
             ExpandOutput::Success { buffer, cursor } => {
                 assert_eq!(buffer, "sudo git");
                 assert_eq!(cursor, 8);
@@ -610,11 +645,12 @@ mod tests {
             },
         ];
         let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
         let input = ExpandInput {
             lbuffer: "mf".to_string(),
             rbuffer: "".to_string(),
         };
-        match expand(&input, &matcher, &no_prefixes()) {
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
             ExpandOutput::Function {
                 function_name,
                 matched_token,
@@ -633,7 +669,6 @@ mod tests {
     #[test]
     fn test_check_remind_exact_match() {
         let matcher = build_test_matcher();
-        // "git push" starts with "git" followed by a space → should remind about "g"
         let result = check_remind("git push", &matcher);
         assert!(result.is_some());
         let (keyword, _) = result.unwrap();
@@ -643,7 +678,6 @@ mod tests {
     #[test]
     fn test_check_remind_no_false_positive_on_prefix() {
         let matcher = build_test_matcher();
-        // "gitlab" starts with "git" but NOT at a word boundary → should NOT remind
         let result = check_remind("gitlab push", &matcher);
         assert!(result.is_none());
     }
@@ -651,7 +685,6 @@ mod tests {
     #[test]
     fn test_check_remind_exact_command() {
         let matcher = build_test_matcher();
-        // "git" alone (exact match) → should remind
         let result = check_remind("git", &matcher);
         assert!(result.is_some());
     }

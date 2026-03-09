@@ -1,4 +1,5 @@
 use kort::config::Abbreviation;
+use kort::context::RegexCache;
 use kort::expand::{expand, ExpandInput};
 use kort::matcher;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
@@ -19,13 +20,14 @@ fn bench_expansion(c: &mut Criterion) {
     for size in [10, 100, 500, 1000] {
         let abbrs = generate_abbreviations(size);
         let m = matcher::build(&abbrs);
+        let rc = RegexCache::from_matcher(&m);
 
-        group.bench_with_input(BenchmarkId::new("lookup", size), &m, |b, m| {
+        group.bench_with_input(BenchmarkId::new("lookup", size), &(&m, &rc), |b, (m, rc)| {
             let input = ExpandInput {
                 lbuffer: format!("abbr{}", size / 2),
                 rbuffer: String::new(),
             };
-            b.iter(|| expand(black_box(&input), black_box(m), black_box(&[])));
+            b.iter(|| expand(black_box(&input), black_box(m), black_box(&[]), black_box(rc)));
         });
     }
 
@@ -43,13 +45,14 @@ fn bench_global_expansion(c: &mut Criterion) {
         .collect();
 
     let m = matcher::build(&abbrs);
+    let rc = RegexCache::from_matcher(&m);
 
     c.bench_function("global_lookup_100", |b| {
         let input = ExpandInput {
             lbuffer: "echo hello G50".to_string(),
             rbuffer: String::new(),
         };
-        b.iter(|| expand(black_box(&input), black_box(&m), black_box(&[])));
+        b.iter(|| expand(black_box(&input), black_box(&m), black_box(&[]), black_box(&rc)));
     });
 }
 
@@ -61,13 +64,14 @@ fn bench_placeholder(c: &mut Criterion) {
     }];
 
     let m = matcher::build(&abbrs);
+    let rc = RegexCache::from_matcher(&m);
 
     c.bench_function("placeholder_expansion", |b| {
         let input = ExpandInput {
             lbuffer: "gc".to_string(),
             rbuffer: String::new(),
         };
-        b.iter(|| expand(black_box(&input), black_box(&m), black_box(&[])));
+        b.iter(|| expand(black_box(&input), black_box(&m), black_box(&[]), black_box(&rc)));
     });
 }
 

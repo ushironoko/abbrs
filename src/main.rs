@@ -2,7 +2,7 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use kort::{add, cache, compiler, config, expand, import, manage, output, placeholder};
+use kort::{add, cache, compiler, config, context, expand, import, manage, output, placeholder};
 
 #[derive(Parser, Debug)]
 #[command(name = "kort")]
@@ -383,8 +383,9 @@ fn cmd_expand(
         }
     }
 
+    let regex_cache = context::RegexCache::from_matcher(&compiled.matcher);
     let input = expand::ExpandInput { lbuffer, rbuffer };
-    let result = expand::expand(&input, &compiled.matcher, &compiled.settings.prefixes);
+    let result = expand::expand(&input, &compiled.matcher, &compiled.settings.prefixes, &regex_cache);
     println!("{}", result);
 
     Ok(())

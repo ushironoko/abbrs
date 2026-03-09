@@ -239,8 +239,8 @@ pub fn detect_conflicts(
 
         let keyword = &abbr.keyword;
 
-        // 1. Check for shell builtin conflicts
-        if builtins.contains(&keyword.as_str()) {
+        // 1. Check for shell builtin conflicts (binary search on sorted array)
+        if builtins.binary_search(&keyword.as_str()).is_ok() {
             report.errors.push(Conflict {
                 keyword: keyword.clone(),
                 conflict_type: ConflictType::ShellBuiltin,

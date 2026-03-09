@@ -33,9 +33,7 @@ impl fmt::Display for ExpandOutput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExpandOutput::Success { buffer, cursor } => {
-                writeln!(f, "success")?;
-                writeln!(f, "{}", buffer)?;
-                write!(f, "{}", cursor)
+                write!(f, "success\n{}\n{}", buffer, cursor)
             }
             ExpandOutput::NoMatch => {
                 write!(f, "no_match")
@@ -45,10 +43,7 @@ impl fmt::Display for ExpandOutput {
                 prefix,
                 rbuffer,
             } => {
-                writeln!(f, "evaluate")?;
-                writeln!(f, "{}", command)?;
-                writeln!(f, "{}", prefix)?;
-                write!(f, "{}", rbuffer)
+                write!(f, "evaluate\n{}\n{}\n{}", command, prefix, rbuffer)
             }
             ExpandOutput::Function {
                 function_name,
@@ -56,11 +51,11 @@ impl fmt::Display for ExpandOutput {
                 prefix,
                 rbuffer,
             } => {
-                writeln!(f, "function")?;
-                writeln!(f, "{}", function_name)?;
-                writeln!(f, "{}", matched_token)?;
-                writeln!(f, "{}", prefix)?;
-                write!(f, "{}", rbuffer)
+                write!(
+                    f,
+                    "function\n{}\n{}\n{}\n{}",
+                    function_name, matched_token, prefix, rbuffer
+                )
             }
             ExpandOutput::StaleCache => {
                 write!(f, "stale_cache")
