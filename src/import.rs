@@ -24,6 +24,9 @@ pub fn import_aliases(alias_output: &str, config_path: &Path) -> Result<ImportRe
                     expansion: value,
                     global: false,
                     evaluate: false,
+                    function: false,
+                    regex: false,
+                    command: None,
                     allow_conflict: false,
                     context_lbuffer: None,
                     context_rbuffer: None,
@@ -83,6 +86,9 @@ pub fn import_fish(content: &str, config_path: &Path) -> Result<ImportResult> {
                     expansion: value,
                     global: is_global,
                     evaluate: false,
+                    function: false,
+                    regex: false,
+                    command: None,
                     allow_conflict: false,
                     context_lbuffer: None,
                     context_rbuffer: None,
@@ -120,25 +126,35 @@ fn parse_fish_abbr(line: &str) -> Option<(String, String, bool)> {
     let mut is_global = false;
     let mut i = 1;
 
-    // Skip flags
+    // Known fish abbr flags and their arities:
+    // No-argument flags: -a/--add, -U/--universal, -g/--global, -r/--regex, -f/--function,
+    //                    -e/--erase, -l/--list, -s/--show, -q/--query, -h/--help
+    // Flags that take a value: --position, --set-cursor, --command, -p (short for --position)
     while i < parts.len() {
         match parts[i] {
-            "-a" | "--add" | "-U" | "--universal" | "-g" => {
-                if parts[i] == "-g" {
-                    is_global = true;
-                }
+            "-a" | "--add" | "-U" | "--universal" | "-e" | "--erase"
+            | "-l" | "--list" | "-s" | "--show" | "-q" | "--query"
+            | "-h" | "--help" | "-r" | "--regex" | "-f" | "--function" => {
+                i += 1;
+            }
+            "-g" | "--global" => {
+                is_global = true;
                 i += 1;
             }
             "--" => {
                 i += 1;
                 break;
             }
+            // Flags that consume a following value argument
+            "--position" | "-p" | "--set-cursor" | "--command" => {
+                i += 2; // skip flag and its value
+            }
             s if s.starts_with('-') => {
-                // Skip unknown flags (like --position, --regex, --function)
-                // These are unsupported features, will be handled at usage time
-                if s == "--position" || s == "--set-cursor" {
-                    i += 2; // skip flag and its argument
-                } else {
+                // Unknown flag — skip it and its potential value conservatively
+                // If next token also starts with '-', it's another flag; otherwise skip it as a value
+                i += 1;
+                if i < parts.len() && !parts[i].starts_with('-') {
+                    // Likely a value for the unknown flag
                     i += 1;
                 }
             }
@@ -202,16 +218,21 @@ pub fn import_git_aliases(
 
                 // Check if the alias is a shell command (starts with !)
                 let (expansion, evaluate) = if let Some(shell_cmd) = value.strip_prefix('!') {
+                    // Shell aliases: raw shell command, no git prefix
                     (shell_cmd.trim().to_string(), true)
                 } else {
-                    (value.clone(), false)
+                    // Regular aliases: prepend git
+                    (format!("git {}", value), false)
                 };
 
                 let params = AddParams {
                     keyword: name,
-                    expansion: format!("git {}", expansion),
+                    expansion,
                     global: false,
                     evaluate,
+                    function: false,
+                    regex: false,
+                    command: None,
                     allow_conflict: false,
                     context_lbuffer: None,
                     context_rbuffer: None,
@@ -328,6 +349,21 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_fish_abbr_with_command_flag() {
+        // --command takes a value; should not misparse
+        let (name, value, _) = parse_fish_abbr("abbr -a --command git co checkout").unwrap();
+        assert_eq!(name, "co");
+        assert_eq!(value, "checkout");
+    }
+
+    #[test]
+    fn test_parse_fish_abbr_with_position_flag() {
+        let (name, value, _) = parse_fish_abbr("abbr -a --position anywhere NE '2>/dev/null'").unwrap();
+        assert_eq!(name, "NE");
+        assert_eq!(value, "2>/dev/null");
+    }
+
+    #[test]
     fn test_import_fish() {
         let dir = tempfile::tempdir().unwrap();
         let path = setup_config(&dir);
@@ -365,7 +401,8 @@ mod tests {
 
         let cfg = config::load(&path).unwrap();
         assert!(cfg.abbr[0].evaluate);
-        assert_eq!(cfg.abbr[0].expansion, "git git log --oneline");
+        // Shell aliases (!) should NOT get git prefix
+        assert_eq!(cfg.abbr[0].expansion, "git log --oneline");
     }
 
     #[test]

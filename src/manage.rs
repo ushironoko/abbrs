@@ -242,10 +242,10 @@ pub fn show(config_path: &Path, keyword_filter: Option<&str>) -> Result<Vec<Stri
 }
 
 fn shell_quote(s: &str) -> String {
-    if s.contains('\'') {
-        format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
-    } else if s.contains(|c: char| c.is_whitespace() || "\"\\|&;()$`!{}[]<>?*#~".contains(c)) {
-        format!("'{}'", s)
+    if s.contains(|c: char| c.is_whitespace() || "'\"\\|&;()$`!{}[]<>?*#~".contains(c)) {
+        // POSIX single-quote escaping: wrap in single quotes,
+        // and replace each embedded ' with '\'' (end quote, escaped quote, start quote)
+        format!("'{}'", s.replace('\'', "'\\''"))
     } else {
         s.to_string()
     }
@@ -485,7 +485,10 @@ expansion = "git commit"
     fn test_shell_quote() {
         assert_eq!(shell_quote("git"), "git");
         assert_eq!(shell_quote("git commit"), "'git commit'");
-        assert_eq!(shell_quote("it's"), "\"it's\"");
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
         assert_eq!(shell_quote("2>/dev/null"), "'2>/dev/null'");
+        // Strings with $, backticks, etc. are safely single-quoted
+        assert_eq!(shell_quote("echo $HOME"), "'echo $HOME'");
+        assert_eq!(shell_quote("echo `date`"), "'echo `date`'");
     }
 }
