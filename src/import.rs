@@ -134,15 +134,17 @@ fn parse_fish_abbr(line: &str) -> Option<FishAbbrAttrs> {
     }
 
     let mut is_global = false;
-    let mut is_function = false;
-    let mut is_regex = false;
     let mut command: Option<String> = None;
     let mut i = 1;
 
     // Known fish abbr flags and their arities:
-    // No-argument flags: -a/--add, -U/--universal, -g/--global, -r/--regex, -f/--function,
+    // No-argument flags: -a/--add, -U/--universal, -g/--global,
     //                    -e/--erase, -l/--list, -s/--show, -q/--query, -h/--help
-    // Flags that take a value: --position, --set-cursor, --command, -p (short for --position)
+    // Flags that take a value: --function/-f FUNCTION, --regex/-r PATTERN,
+    //                          --command/-c COMMAND, --position/-p VALUE, --set-cursor[=MARKER]
+    let mut function_name: Option<String> = None;
+    let mut regex_pattern: Option<String> = None;
+
     while i < parts.len() {
         match parts[i] {
             "-a" | "--add" | "-U" | "--universal" | "-e" | "--erase"
@@ -151,12 +153,22 @@ fn parse_fish_abbr(line: &str) -> Option<FishAbbrAttrs> {
                 i += 1;
             }
             "-r" | "--regex" => {
-                is_regex = true;
-                i += 1;
+                // --regex PATTERN: takes the next token as the regex pattern
+                if i + 1 < parts.len() {
+                    regex_pattern = Some(strip_quotes(parts[i + 1]));
+                    i += 2;
+                } else {
+                    i += 1;
+                }
             }
             "-f" | "--function" => {
-                is_function = true;
-                i += 1;
+                // --function FUNCTION: takes the next token as the function name
+                if i + 1 < parts.len() {
+                    function_name = Some(strip_quotes(parts[i + 1]));
+                    i += 2;
+                } else {
+                    i += 1;
+                }
             }
             "-g" | "--global" => {
                 is_global = true;
@@ -180,7 +192,7 @@ fn parse_fish_abbr(line: &str) -> Option<FishAbbrAttrs> {
             "--set-cursor" => {
                 i += 2; // skip flag and its value
             }
-            "--command" => {
+            "--command" | "-c" => {
                 if i + 1 < parts.len() {
                     command = Some(parts[i + 1].to_string());
                     i += 2;
@@ -208,20 +220,33 @@ fn parse_fish_abbr(line: &str) -> Option<FishAbbrAttrs> {
     let name = strip_quotes(parts[i]);
     i += 1;
 
-    if i >= parts.len() {
-        return None;
-    }
+    // Collect positional expansion text (if present)
+    let positional_expansion = if i < parts.len() {
+        Some(strip_quotes(&parts[i..].join(" ")))
+    } else {
+        None
+    };
 
-    // Rest is the expansion (may be quoted)
-    let expansion_str = parts[i..].join(" ");
-    let expansion = strip_quotes(&expansion_str);
+    // Map to kort's model:
+    // - keyword: use regex pattern if --regex was given, otherwise use NAME
+    // - expansion: use positional text if present, otherwise function name (kort stores
+    //   the function name in the expansion field when function = true)
+    let keyword = regex_pattern.as_ref().cloned().unwrap_or(name);
+
+    let expansion = if let Some(pos_exp) = positional_expansion {
+        pos_exp
+    } else if let Some(ref func) = function_name {
+        func.clone()
+    } else {
+        return None;
+    };
 
     Some(FishAbbrAttrs {
-        name,
+        name: keyword,
         expansion,
         is_global,
-        is_function,
-        is_regex,
+        is_function: function_name.is_some(),
+        is_regex: regex_pattern.is_some(),
         command,
     })
 }
@@ -416,7 +441,8 @@ mod tests {
 
     #[test]
     fn test_parse_fish_abbr_with_function_flag() {
-        let attrs = parse_fish_abbr("abbr -a -f mf my_func").unwrap();
+        // --function takes the next token as the function name
+        let attrs = parse_fish_abbr("abbr -a --function my_func -- mf").unwrap();
         assert_eq!(attrs.name, "mf");
         assert_eq!(attrs.expansion, "my_func");
         assert!(attrs.is_function);
@@ -424,19 +450,30 @@ mod tests {
 
     #[test]
     fn test_parse_fish_abbr_with_regex_flag() {
-        let attrs = parse_fish_abbr("abbr -a --regex '^gc$' 'git commit'").unwrap();
+        // --regex takes the next token as the regex pattern
+        let attrs = parse_fish_abbr("abbr -a --regex '^gc$' -- gc 'git commit'").unwrap();
         assert_eq!(attrs.name, "^gc$");
+        assert_eq!(attrs.expansion, "git commit");
         assert!(attrs.is_regex);
     }
 
     #[test]
     fn test_parse_fish_abbr_command_with_function() {
-        // fish allows --command + --function together
-        let attrs = parse_fish_abbr("abbr -a --command git -f co checkout").unwrap();
+        // fish allows --command + --function together; both take values
+        let attrs = parse_fish_abbr("abbr -a --command git --function my_handler -- co").unwrap();
+        assert_eq!(attrs.name, "co");
+        assert_eq!(attrs.expansion, "my_handler");
+        assert_eq!(attrs.command, Some("git".to_string()));
+        assert!(attrs.is_function);
+    }
+
+    #[test]
+    fn test_parse_fish_abbr_short_command_flag() {
+        // -c is short for --command
+        let attrs = parse_fish_abbr("abbr -a -c git -- co checkout").unwrap();
         assert_eq!(attrs.name, "co");
         assert_eq!(attrs.expansion, "checkout");
         assert_eq!(attrs.command, Some("git".to_string()));
-        assert!(attrs.is_function);
     }
 
     #[test]
@@ -526,12 +563,14 @@ global = true
         let dir = tempfile::tempdir().unwrap();
         let path = setup_config(&dir);
 
-        let fish_content = "abbr -a -f mf my_func\n";
+        // --function takes a value; kort stores it as expansion with function=true
+        let fish_content = "abbr -a --function my_func -- mf\n";
         let result = import_fish(fish_content, &path).unwrap();
         assert_eq!(result.imported, 1);
 
         let cfg = config::load(&path).unwrap();
         assert_eq!(cfg.abbr[0].keyword, "mf");
+        assert_eq!(cfg.abbr[0].expansion, "my_func");
         assert!(cfg.abbr[0].function);
     }
 
@@ -540,13 +579,31 @@ global = true
         let dir = tempfile::tempdir().unwrap();
         let path = setup_config(&dir);
 
-        let fish_content = "abbr -a --regex '^gc$' 'git commit'\n";
+        // --regex takes a value (the pattern); kort uses it as keyword
+        let fish_content = "abbr -a --regex '^gc$' -- gc 'git commit'\n";
         let result = import_fish(fish_content, &path).unwrap();
         assert_eq!(result.imported, 1);
 
         let cfg = config::load(&path).unwrap();
         assert_eq!(cfg.abbr[0].keyword, "^gc$");
+        assert_eq!(cfg.abbr[0].expansion, "git commit");
         assert!(cfg.abbr[0].regex);
+    }
+
+    #[test]
+    fn test_import_fish_preserves_short_command_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = setup_config(&dir);
+
+        // -c is short for --command
+        let fish_content = "abbr -a -c git -- co checkout\n";
+        let result = import_fish(fish_content, &path).unwrap();
+        assert_eq!(result.imported, 1);
+
+        let cfg = config::load(&path).unwrap();
+        assert_eq!(cfg.abbr[0].keyword, "co");
+        assert_eq!(cfg.abbr[0].expansion, "checkout");
+        assert_eq!(cfg.abbr[0].command, Some("git".to_string()));
     }
 
     #[test]

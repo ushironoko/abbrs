@@ -33,20 +33,27 @@ pub fn append_to_config(path: &Path, params: &AddParams) -> Result<()> {
         String::new()
     };
 
-    // Check for duplicate keywords in existing config
+    // Check for duplicate keywords in existing config (scope-aware)
     if !existing_content.is_empty() {
         let existing = config::parse(&existing_content)?;
-        if let Some(dup) = existing.abbr.iter().find(|a| a.keyword == params.keyword) {
-            // If it has exactly the same context, it's a duplicate
-            let new_has_context = params.context_lbuffer.is_some() || params.context_rbuffer.is_some();
-            let dup_has_context = dup.context.is_some();
-            if !new_has_context && !dup_has_context {
-                anyhow::bail!(
-                    "keyword \"{}\" already exists in config (expansion: \"{}\")",
-                    params.keyword,
-                    dup.expansion
-                );
+        if let Some(dup) = existing.abbr.iter().find(|a| {
+            if a.keyword != params.keyword {
+                return false;
             }
+            // Same keyword — only a true duplicate if scopes match
+            let same_command = a.command == params.command;
+            let same_global = a.global == params.global;
+            let same_regex = a.regex == params.regex;
+            let new_has_context =
+                params.context_lbuffer.is_some() || params.context_rbuffer.is_some();
+            let dup_has_context = a.context.is_some();
+            same_command && same_global && same_regex && (new_has_context == dup_has_context)
+        }) {
+            anyhow::bail!(
+                "keyword \"{}\" already exists in config with the same scope (expansion: \"{}\")",
+                params.keyword,
+                dup.expansion
+            );
         }
     }
 
@@ -585,6 +592,77 @@ expansion = "git"
 
         let err = append_to_config(&path, &params).unwrap_err();
         assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_different_command_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "co"
+expansion = "checkout"
+command = "git"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but different command scope — should succeed
+        let params = AddParams {
+            keyword: "co".to_string(),
+            expansion: "checkout".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: Some("kubectl".to_string()),
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
+        assert_eq!(cfg.abbr[0].command, Some("git".to_string()));
+        assert_eq!(cfg.abbr[1].command, Some("kubectl".to_string()));
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_command_vs_no_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "co"
+expansion = "checkout"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but one has command scope — should succeed
+        let params = AddParams {
+            keyword: "co".to_string(),
+            expansion: "checkout".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: Some("git".to_string()),
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
     }
 
     #[test]
