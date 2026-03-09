@@ -44,10 +44,18 @@ pub fn append_to_config(path: &Path, params: &AddParams) -> Result<()> {
             let same_command = a.command == params.command;
             let same_global = a.global == params.global;
             let same_regex = a.regex == params.regex;
-            let new_has_context =
-                params.context_lbuffer.is_some() || params.context_rbuffer.is_some();
-            let dup_has_context = a.context.is_some();
-            same_command && same_global && same_regex && (new_has_context == dup_has_context)
+            let same_context = match (&a.context, &params.context_lbuffer, &params.context_rbuffer) {
+                // Both have no context
+                (None, None, None) => true,
+                // Existing has context, new does not (or vice versa)
+                (Some(_), None, None) | (None, Some(_), _) | (None, _, Some(_)) => false,
+                // Both have context — compare actual pattern values
+                (Some(ctx), _, _) => {
+                    ctx.lbuffer.as_deref() == params.context_lbuffer.as_deref()
+                        && ctx.rbuffer.as_deref() == params.context_rbuffer.as_deref()
+                }
+            };
+            same_command && same_global && same_regex && same_context
         }) {
             anyhow::bail!(
                 "keyword \"{}\" already exists in config with the same scope (expansion: \"{}\")",
@@ -720,6 +728,109 @@ expansion = "checkout"
 
         let config = config::parse(&content).unwrap();
         assert!(config.abbr[0].context.is_some());
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_different_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "main"
+expansion = "main --branch"
+context.lbuffer = "^git (checkout|switch)"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but different context.lbuffer — should succeed
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main --rebase".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
+            allow_conflict: false,
+            context_lbuffer: Some("^git merge".to_string()),
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
+    }
+
+    #[test]
+    fn test_append_to_config_same_keyword_same_context_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "main"
+expansion = "main --branch"
+context.lbuffer = "^git (checkout|switch)"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword AND same context — should be rejected as duplicate
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main --rebase".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
+            allow_conflict: false,
+            context_lbuffer: Some("^git (checkout|switch)".to_string()),
+            context_rbuffer: None,
+        };
+
+        let err = append_to_config(&path, &params).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn test_append_to_config_context_vs_no_context_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kort.toml");
+
+        let initial = r#"[settings]
+strict = false
+
+[[abbr]]
+keyword = "main"
+expansion = "main --branch"
+context.lbuffer = "^git (checkout|switch)"
+"#;
+        std::fs::write(&path, initial).unwrap();
+
+        // Same keyword but no context — different scope, should succeed
+        let params = AddParams {
+            keyword: "main".to_string(),
+            expansion: "main".to_string(),
+            global: false,
+            evaluate: false,
+            function: false,
+            regex: false,
+            command: None,
+            allow_conflict: false,
+            context_lbuffer: None,
+            context_rbuffer: None,
+        };
+
+        append_to_config(&path, &params).unwrap();
+
+        let cfg = config::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(cfg.abbr.len(), 2);
     }
 
     #[test]
