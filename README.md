@@ -46,6 +46,30 @@ eval "$(kort init zsh)"
 kort compile
 ```
 
+## Migrating from Aliases
+
+### From zsh aliases
+
+Pipe the output of `alias` into `kort import aliases`:
+
+```bash
+alias | kort import aliases
+```
+
+This parses each `alias name='expansion'` line and appends it to your `kort.toml`. Aliases that conflict with PATH commands are automatically marked with `allow_conflict = true`.
+
+### From fish abbreviations
+
+```bash
+kort import fish
+```
+
+### From git aliases
+
+```bash
+kort import git-aliases
+```
+
 ## Configuration
 
 Edit `~/.config/kort/kort.toml` to define your abbreviations.
@@ -285,30 +309,6 @@ You will be prompted for the keyword, expansion, type (regular / global / contex
 | `kort remind` | Check for abbreviation reminders (called by ZLE) |
 | `kort expand` | Expand an abbreviation (called by the zsh widget) |
 | `kort next-placeholder` | Jump to next placeholder (called by the zsh widget) |
-
-## Migrating from Aliases
-
-### From zsh aliases
-
-Pipe the output of `alias` into `kort import aliases`:
-
-```bash
-alias | kort import aliases
-```
-
-This parses each `alias name='expansion'` line and appends it to your `kort.toml`. Aliases that conflict with PATH commands are automatically marked with `allow_conflict = true`.
-
-### From fish abbreviations
-
-```bash
-kort import fish
-```
-
-### From git aliases
-
-```bash
-kort import git-aliases
-```
 
 ## Auto-Recompilation
 
