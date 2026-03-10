@@ -60,8 +60,12 @@ This parses each `alias name='expansion'` line and appends it to your `kort.toml
 
 ### From fish abbreviations
 
+Pipe the output of `abbr` into `kort import fish`, or pass a file path:
+
 ```bash
-kort import fish
+fish -c "abbr" | kort import fish
+# or
+kort import fish /path/to/abbreviations.txt
 ```
 
 ### From git aliases
@@ -212,6 +216,7 @@ The zsh integration sets up the following key bindings:
 | Space | Expand abbreviation, then insert space |
 | Enter | Expand abbreviation, then execute |
 | Tab | Jump to next `{{placeholder}}` (falls back to normal completion) |
+| Ctrl+Space | Insert a literal space (no expansion) |
 | accept-line | Check for abbreviation reminders (when `remind = true`) |
 
 ## Prefix Candidates
@@ -295,9 +300,9 @@ You will be prompted for the keyword, expansion, type (regular / global / contex
 | `kort init zsh` | Output zsh integration script (usage: `eval "$(kort init zsh)"`) |
 | `kort add` | Add an abbreviation interactively |
 | `kort add <keyword> <expansion>` | Add an abbreviation with options |
-| `kort erase <keyword>` | Erase an abbreviation from config |
-| `kort rename <old> <new>` | Rename an abbreviation keyword |
-| `kort query <keyword>` | Check if an abbreviation exists (exit code 0 = found) |
+| `kort erase <keyword>` | Erase an abbreviation from config (`--command`, `--global` to target specific entries) |
+| `kort rename <old> <new>` | Rename an abbreviation keyword (`--command`, `--global` to target specific entries) |
+| `kort query <keyword>` | Check if an abbreviation exists (`--command`, `--global` to target specific entries) |
 | `kort show [keyword]` | Show abbreviations in re-importable `kort add` format |
 | `kort compile` | Validate config, detect conflicts, and generate binary cache |
 | `kort check` | Validate config syntax without compiling |
@@ -309,6 +314,7 @@ You will be prompted for the keyword, expansion, type (regular / global / contex
 | `kort remind` | Check for abbreviation reminders (called by ZLE) |
 | `kort expand` | Expand an abbreviation (called by the zsh widget) |
 | `kort next-placeholder` | Jump to next placeholder (called by the zsh widget) |
+| `kort serve` | Start persistent coproc mode for sub-100µs expansion latency |
 
 ## Auto-Recompilation
 

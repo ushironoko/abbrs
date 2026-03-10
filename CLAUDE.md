@@ -29,13 +29,15 @@ kort.toml → kort compile → conflict detection → kort.cache (bitcode)
 
 ### Expansion priority
 
-Contextual (regex match) > Regular (command position only) > Global (any position).
+Contextual (regex match) > Command-scoped > Regular (command position only) > Global (any position) > Regex keywords > Prefix match fallback.
 
 ### ZLE output protocol
 
 kort communicates with the zsh widget (`shells/zsh/kort.zsh`) via a line-based stdout protocol:
 - `success\n{buffer}\n{cursor}` — expanded text with cursor position
 - `evaluate\n{command}\n{prefix}\n{rbuffer}` — shell eval required
+- `function\n{function_name}\n{matched_token}\n{prefix}\n{rbuffer}` — shell function call required
+- `candidates\n{count}\n{keyword}\t{expansion}\n...` — multiple prefix-match candidates found
 - `stale_cache` — triggers auto-recompile in widget
 - `no_match` — fallback to normal key behavior
 
@@ -47,12 +49,12 @@ Cache stores a hash of config file content. `kort expand` checks freshness on ev
 
 - **main.rs** — CLI entry point (clap). All subcommand handlers live here.
 - **compiler.rs** — Orchestrates the compile pipeline: config parse → PATH scan → conflict detect → matcher build → cache write.
-- **conflict.rs** — PATH scanning, zsh builtin list (~70 commands), three conflict types (exact/suffix/builtin).
+- **conflict.rs** — PATH scanning, zsh builtin list (~90 commands), two conflict types (exact PATH match/builtin).
 - **matcher.rs** — `Matcher` struct with `FxHashMap<String, Vec<CompiledAbbr>>` for regular/global, `Vec<CompiledAbbr>` for contextual.
 - **expand.rs** — Keyword extraction from lbuffer, command position detection, lookup priority chain.
 - **context.rs** — Regex-based lbuffer/rbuffer context matching for contextual abbreviations.
 - **placeholder.rs** — `{{name}}` placeholder removal and cursor positioning.
-- **cache.rs** — bitcode serialize/deserialize with version check (current: v2).
+- **cache.rs** — bitcode serialize/deserialize with version check (current: v4).
 - **output.rs** — `ExpandOutput` / `PlaceholderOutput` enums with `Display` impl for the stdout protocol.
 - **config.rs** — TOML deserialization, validation rules, XDG path resolution.
 
