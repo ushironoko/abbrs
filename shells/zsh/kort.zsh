@@ -7,6 +7,11 @@ kort-expand-space() {
   local -a out
   out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
 
+  if [[ $out[1] == stale_cache ]]; then
+    kort compile 2>/dev/null
+    out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
+  fi
+
   case $out[1] in
     success)
       if [[ -n $out[2] ]]; then
@@ -42,36 +47,6 @@ kort-expand-space() {
         zle self-insert
       fi
       ;;
-    stale_cache)
-      # Recompile if cache is stale
-      kort compile 2>/dev/null
-      # Retry — re-enter the full case to handle all response types
-      out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
-      case $out[1] in
-        success)
-          if [[ -n $out[2] ]]; then
-            BUFFER=$out[2]
-            CURSOR=$out[3]
-          else
-            zle self-insert
-          fi
-          ;;
-        candidates)
-          local count=$out[2]
-          local msg=""
-          local i
-          for (( i=3; i <= count + 2; i++ )); do
-            local kw="${out[$i]%%	*}"
-            local exp="${out[$i]#*	}"
-            msg+="  ${kw} → ${exp}"$'\n'
-          done
-          zle -M "$msg"
-          ;;
-        *)
-          zle self-insert
-          ;;
-      esac
-      ;;
     candidates)
       local count=$out[2]
       local msg=""
@@ -95,6 +70,11 @@ kort-expand-accept() {
   local -a out
   out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
 
+  if [[ $out[1] == stale_cache ]]; then
+    kort compile 2>/dev/null
+    out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
+  fi
+
   case $out[1] in
     success)
       if [[ -n $out[2] ]]; then
@@ -115,13 +95,6 @@ kort-expand-accept() {
         if [[ -n $result ]]; then
           BUFFER="${out[4]}${result}${out[5]}"
         fi
-      fi
-      ;;
-    stale_cache)
-      kort compile 2>/dev/null
-      out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
-      if [[ $out[1] == "success" && -n $out[2] ]]; then
-        BUFFER=$out[2]
       fi
       ;;
   esac
