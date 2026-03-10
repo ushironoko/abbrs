@@ -178,6 +178,43 @@ The zsh integration sets up the following key bindings:
 | Tab | Jump to next `{{placeholder}}` (falls back to normal completion) |
 | accept-line | Check for abbreviation reminders (when `remind = true`) |
 
+## Prefix Candidates
+
+When you type a partial keyword and press Space, kort shows matching abbreviations as candidates if no exact match is found.
+
+For example, with these abbreviations defined:
+
+```toml
+[[abbr]]
+keyword = "gc"
+expansion = "git commit"
+
+[[abbr]]
+keyword = "gp"
+expansion = "git push"
+
+[[abbr]]
+keyword = "gd"
+expansion = "git diff"
+```
+
+Typing `g` then pressing Space displays:
+
+```
+  gc → git commit
+  gp → git push
+  gd → git diff
+```
+
+Space is **not** inserted — you continue typing to narrow down the candidates. Typing `gc` then pressing Space expands to `git commit` as usual.
+
+Candidates respect abbreviation scope:
+
+- At **command position**: regular, global, and command-scoped abbreviations are shown
+- At **argument position**: only global and matching command-scoped abbreviations are shown
+
+The prefix index is built automatically during `kort compile` — no extra configuration needed. Candidates are shown only when 2 or more matches exist.
+
 ## Adding Abbreviations from the CLI
 
 Instead of editing `kort.toml` by hand, you can use `kort add`:
