@@ -70,8 +70,11 @@ enum Commands {
         config: Option<PathBuf>,
     },
 
-    /// Generate config file template
-    Init,
+    /// Initialize kort (shell integration or config)
+    Init {
+        #[command(subcommand)]
+        target: InitTarget,
+    },
 
     /// Add a new abbreviation to config
     Add {
@@ -213,6 +216,14 @@ enum Commands {
 }
 
 #[derive(Subcommand, Debug)]
+enum InitTarget {
+    /// Output zsh integration script (usage: eval "$(kort init zsh)")
+    Zsh,
+    /// Generate config file template
+    Config,
+}
+
+#[derive(Subcommand, Debug)]
 enum ImportSource {
     /// Import from zsh aliases (reads from stdin)
     Aliases {
@@ -256,7 +267,7 @@ fn main() -> Result<()> {
         Commands::NextPlaceholder { lbuffer, rbuffer } => cmd_next_placeholder(lbuffer, rbuffer),
         Commands::List { config: cfg } => cmd_list(cfg),
         Commands::Check { config: cfg } => cmd_check(cfg),
-        Commands::Init => cmd_init(),
+        Commands::Init { target } => cmd_init(target),
         Commands::Add {
             keyword,
             expansion,
@@ -331,13 +342,7 @@ fn resolve_cache_path(cache: Option<PathBuf>) -> Result<PathBuf> {
 fn cmd_compile(strict: bool, cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
     let cache_path = resolve_cache_path(None)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     let result = compiler::compile(&config_path, &cache_path, strict)?;
 
@@ -420,13 +425,7 @@ fn cmd_next_placeholder(lbuffer: String, rbuffer: String) -> Result<()> {
 
 fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     let config = config::load(&config_path)?;
 
@@ -452,8 +451,9 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
             "reg"
         };
 
-        let expansion = if abbr.expansion.len() > 38 {
-            format!("{}...", &abbr.expansion[..35])
+        let expansion = if abbr.expansion.chars().count() > 38 {
+            let truncated: String = abbr.expansion.chars().take(35).collect();
+            format!("{}...", truncated)
         } else {
             abbr.expansion.clone()
         };
@@ -489,13 +489,7 @@ fn cmd_list(cfg: Option<PathBuf>) -> Result<()> {
 
 fn cmd_check(cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     let count = compiler::check(&config_path)?;
     eprintln!("✓ config is valid ({} abbreviation(s))", count);
@@ -516,13 +510,7 @@ fn cmd_add(
     cfg: Option<PathBuf>,
 ) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     let params = match (keyword, expansion) {
         (Some(kw), Some(exp)) => add::AddParams {
@@ -579,13 +567,7 @@ fn cmd_erase(
     cfg: Option<PathBuf>,
 ) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     if manage::erase(&config_path, &keyword, command.as_deref(), global)? {
         eprintln!("✓ erased: {}", keyword);
@@ -604,13 +586,7 @@ fn cmd_rename(
     cfg: Option<PathBuf>,
 ) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     if manage::rename(&config_path, &old, &new, command.as_deref(), global)? {
         eprintln!("✓ renamed: {} → {}", old, new);
@@ -628,13 +604,7 @@ fn cmd_query(
     cfg: Option<PathBuf>,
 ) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     if manage::query(&config_path, &keyword, command.as_deref(), global)? {
         std::process::exit(0);
@@ -645,13 +615,7 @@ fn cmd_query(
 
 fn cmd_show(keyword: Option<String>, cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     let lines = manage::show(&config_path, keyword.as_deref())?;
     for line in lines {
@@ -733,13 +697,7 @@ fn cmd_import(source: ImportSource) -> Result<()> {
 
 fn cmd_export(cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
-
-    if !config_path.exists() {
-        anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
-            config_path.display()
-        );
-    }
+    require_config(&config_path)?;
 
     let lines = import::export(&config_path)?;
     for line in lines {
@@ -751,14 +709,26 @@ fn cmd_export(cfg: Option<PathBuf>) -> Result<()> {
 fn require_config(config_path: &std::path::Path) -> Result<()> {
     if !config_path.exists() {
         anyhow::bail!(
-            "config file not found: {}\nrun `kort init` to generate a template",
+            "config file not found: {}\nrun `kort init config` to generate a template",
             config_path.display()
         );
     }
     Ok(())
 }
 
-fn cmd_init() -> Result<()> {
+fn cmd_init(target: InitTarget) -> Result<()> {
+    match target {
+        InitTarget::Zsh => cmd_init_zsh(),
+        InitTarget::Config => cmd_init_config(),
+    }
+}
+
+fn cmd_init_zsh() -> Result<()> {
+    print!("{}", include_str!("../shells/zsh/kort.zsh"));
+    Ok(())
+}
+
+fn cmd_init_config() -> Result<()> {
     let config_path = config::default_config_path()?;
 
     if config_path.exists() {

@@ -1,9 +1,10 @@
+use assert_cmd::cargo::cargo_bin_cmd;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn kort_cmd() -> Command {
-    Command::cargo_bin("kort").unwrap()
+    cargo_bin_cmd!("kort")
 }
 
 fn create_config(dir: &TempDir, content: &str) -> std::path::PathBuf {
