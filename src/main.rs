@@ -17,10 +17,6 @@ struct Args {
 enum Commands {
     /// Compile config and verify conflicts
     Compile {
-        /// Treat suffix conflicts as errors
-        #[arg(long, default_value = "false")]
-        strict: bool,
-
         /// Config file path
         #[arg(long)]
         config: Option<PathBuf>,
@@ -255,9 +251,8 @@ fn main() -> Result<()> {
 
     match args.command {
         Commands::Compile {
-            strict,
             config: cfg,
-        } => cmd_compile(strict, cfg),
+        } => cmd_compile(cfg),
         Commands::Expand {
             lbuffer,
             rbuffer,
@@ -339,17 +334,12 @@ fn resolve_cache_path(cache: Option<PathBuf>) -> Result<PathBuf> {
     }
 }
 
-fn cmd_compile(strict: bool, cfg: Option<PathBuf>) -> Result<()> {
+fn cmd_compile(cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
     let cache_path = resolve_cache_path(None)?;
     require_config(&config_path)?;
 
-    let result = compiler::compile(&config_path, &cache_path, strict)?;
-
-    // Print warnings
-    for warning in &result.warnings {
-        eprintln!("  ⚠ {}", warning);
-    }
+    let result = compiler::compile(&config_path, &cache_path)?;
 
     eprintln!(
         "✓ compiled {} abbreviation(s) → {}",
@@ -747,7 +737,6 @@ fn cmd_init_config() -> Result<()> {
 # See: https://github.com/ushironoko/kort
 
 [settings]
-strict = false  # true: treat suffix conflicts as errors
 # prefixes = ["sudo", "doas"]  # commands that preserve command position
 # remind = false  # remind when abbreviation could have been used
 
