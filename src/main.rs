@@ -2,7 +2,7 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use kort::{add, cache, compiler, config, context, expand, import, manage, output, placeholder};
+use kort::{add, cache, compiler, config, context, expand, import, manage, output, placeholder, serve};
 
 #[derive(Parser, Debug)]
 #[command(name = "kort")]
@@ -217,6 +217,17 @@ enum Commands {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+
+    /// Start long-running serve mode (coproc/pipe communication)
+    Serve {
+        /// Cache file path
+        #[arg(long)]
+        cache: Option<PathBuf>,
+
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -326,6 +337,7 @@ fn main() -> Result<()> {
         Commands::Import { source } => cmd_import(source),
         Commands::Export { config: cfg } => cmd_export(cfg),
         Commands::ListKeywords { config: cfg } => cmd_list_keywords(cfg),
+        Commands::Serve { cache, config } => serve::run(cache, config),
     }
 }
 

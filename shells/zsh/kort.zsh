@@ -2,8 +2,64 @@
 # Source this file in your .zshrc:
 #   source /path/to/kort.zsh
 
-# Expand abbreviation on Space key
-kort-expand-space() {
+# --- Coproc management ---
+
+typeset -g _KORT_COPROC_PID=0
+
+_kort_start_coproc() {
+  _kort_stop_coproc
+  coproc kort serve 2>/dev/null
+  _KORT_COPROC_PID=$!
+}
+
+_kort_stop_coproc() {
+  if (( _KORT_COPROC_PID > 0 )); then
+    kill $_KORT_COPROC_PID 2>/dev/null
+    wait $_KORT_COPROC_PID 2>/dev/null
+    _KORT_COPROC_PID=0
+  fi
+}
+
+if (( $+functions[add-zsh-hook] )); then
+  add-zsh-hook zshexit _kort_stop_coproc
+else
+  zshexit() { _kort_stop_coproc }
+fi
+
+# --- Coproc communication ---
+
+typeset -ga _kort_reply
+
+_kort_request() {
+  local request="$1"
+  _kort_reply=()
+
+  # Check if coproc is alive
+  if (( _KORT_COPROC_PID <= 0 )) || ! kill -0 $_KORT_COPROC_PID 2>/dev/null; then
+    _kort_start_coproc
+    if (( _KORT_COPROC_PID <= 0 )); then
+      return 1
+    fi
+  fi
+
+  # Send request
+  print -p "$request" 2>/dev/null || return 1
+
+  # Read response lines until EOR (\x1e)
+  local line
+  while true; do
+    read -rp -t 1 line 2>/dev/null || return 1
+    if [[ $line == $'\x1e'* ]]; then
+      break
+    fi
+    _kort_reply+=( "$line" )
+  done
+  return 0
+}
+
+# --- Fallback (per-process mode) ---
+
+_kort_expand_fallback() {
   local -a out
   out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
 
@@ -11,6 +67,23 @@ kort-expand-space() {
     kort compile 2>/dev/null
     out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
   fi
+
+  echo "${(F)out}"
+}
+
+_kort_placeholder_fallback() {
+  kort next-placeholder --lbuffer="$LBUFFER" --rbuffer="$RBUFFER"
+}
+
+_kort_remind_fallback() {
+  kort remind --buffer="$1" 2>/dev/null
+}
+
+# --- Response handling ---
+
+_kort_handle_expand_response() {
+  local -a out
+  out=( "$@" )
 
   case $out[1] in
     success)
@@ -22,7 +95,6 @@ kort-expand-space() {
       fi
       ;;
     evaluate)
-      # Command evaluation
       local result
       result=$(eval "$out[2]" 2>/dev/null)
       if [[ -n $result ]]; then
@@ -33,7 +105,6 @@ kort-expand-space() {
       fi
       ;;
     function)
-      # Shell function call
       if ! whence -w "$out[2]" >/dev/null 2>&1; then
         zle self-insert
         return
@@ -57,7 +128,6 @@ kort-expand-space() {
         msg+="  ${kw} → ${exp}"$'\n'
       done
       zle -M "$msg"
-      # Do not insert space — user continues typing to narrow down
       ;;
     *)
       zle self-insert
@@ -65,15 +135,9 @@ kort-expand-space() {
   esac
 }
 
-# Expand abbreviation on Enter key and execute
-kort-expand-accept() {
+_kort_handle_expand_accept_response() {
   local -a out
-  out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
-
-  if [[ $out[1] == stale_cache ]]; then
-    kort compile 2>/dev/null
-    out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
-  fi
+  out=( "$@" )
 
   case $out[1] in
     success)
@@ -98,12 +162,66 @@ kort-expand-accept() {
       fi
       ;;
   esac
+}
+
+# --- Widget functions ---
+
+# Expand abbreviation on Space key
+kort-expand-space() {
+  if _kort_request "expand\t${LBUFFER}\t${RBUFFER}"; then
+    if [[ ${_kort_reply[1]} == stale_cache ]]; then
+      kort compile 2>/dev/null
+      _kort_request "reload"
+      if _kort_request "expand\t${LBUFFER}\t${RBUFFER}"; then
+        _kort_handle_expand_response "${_kort_reply[@]}"
+      else
+        local -a fb
+        fb=( "${(f)$(_kort_expand_fallback)}" )
+        _kort_handle_expand_response "${fb[@]}"
+      fi
+    else
+      _kort_handle_expand_response "${_kort_reply[@]}"
+    fi
+  else
+    local -a fb
+    fb=( "${(f)$(_kort_expand_fallback)}" )
+    _kort_handle_expand_response "${fb[@]}"
+  fi
+}
+
+# Expand abbreviation on Enter key and execute
+kort-expand-accept() {
+  if _kort_request "expand\t${LBUFFER}\t${RBUFFER}"; then
+    if [[ ${_kort_reply[1]} == stale_cache ]]; then
+      kort compile 2>/dev/null
+      _kort_request "reload"
+      if _kort_request "expand\t${LBUFFER}\t${RBUFFER}"; then
+        _kort_handle_expand_accept_response "${_kort_reply[@]}"
+      else
+        local -a fb
+        fb=( "${(f)$(_kort_expand_fallback)}" )
+        _kort_handle_expand_accept_response "${fb[@]}"
+      fi
+    else
+      _kort_handle_expand_accept_response "${_kort_reply[@]}"
+    fi
+  else
+    local -a fb
+    fb=( "${(f)$(_kort_expand_fallback)}" )
+    _kort_handle_expand_accept_response "${fb[@]}"
+  fi
 
   # Check for reminders before accepting
-  local remind_msg
-  remind_msg=$(kort remind --buffer="$BUFFER" 2>/dev/null)
-  if [[ -n $remind_msg ]]; then
-    zle -M "$remind_msg"
+  if _kort_request "remind\t${BUFFER}"; then
+    if [[ -n ${_kort_reply[1]} ]]; then
+      zle -M "${_kort_reply[1]}"
+    fi
+  else
+    local remind_msg
+    remind_msg=$(_kort_remind_fallback "$BUFFER")
+    if [[ -n $remind_msg ]]; then
+      zle -M "$remind_msg"
+    fi
   fi
 
   zle accept-line
@@ -111,14 +229,22 @@ kort-expand-accept() {
 
 # Jump to next placeholder on Tab key
 kort-next-placeholder() {
-  local -a out
-  out=( "${(f)$(kort next-placeholder --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
-  if [[ $out[1] == "success" && -n $out[2] ]]; then
-    BUFFER=$out[2]
-    CURSOR=$out[3]
+  if _kort_request "placeholder\t${LBUFFER}\t${RBUFFER}"; then
+    if [[ ${_kort_reply[1]} == "success" && -n ${_kort_reply[2]} ]]; then
+      BUFFER=${_kort_reply[2]}
+      CURSOR=${_kort_reply[3]}
+    else
+      zle expand-or-complete
+    fi
   else
-    # Fall back to normal tab completion if no placeholder
-    zle expand-or-complete
+    local -a out
+    out=( "${(f)$(_kort_placeholder_fallback)}" )
+    if [[ $out[1] == "success" && -n $out[2] ]]; then
+      BUFFER=$out[2]
+      CURSOR=$out[3]
+    else
+      zle expand-or-complete
+    fi
   fi
 }
 
@@ -139,6 +265,9 @@ bindkey "^M" kort-expand-accept
 bindkey "^I" kort-next-placeholder
 bindkey "^ " kort-literal-space
 
+# Start coproc on load
+_kort_start_coproc
+
 # Zsh completion function
 _kort() {
   local -a subcmds
@@ -157,6 +286,7 @@ _kort() {
     'remind:Check for abbreviation reminders'
     'import:Import abbreviations'
     'export:Export abbreviations'
+    'serve:Start serve mode (coproc)'
   )
 
   _kort_keywords() {
@@ -201,6 +331,12 @@ _kort() {
       _arguments -s \
         '--lbuffer=[Buffer left of cursor]:lbuffer:' \
         '--rbuffer=[Buffer right of cursor]:rbuffer:' \
+        '*:' && return
+      ;;
+    serve)
+      _arguments -s \
+        '--cache=[Cache file path]:cache file:_files' \
+        '--config=[Config file path]:config file:_files' \
         '*:' && return
       ;;
     add)
