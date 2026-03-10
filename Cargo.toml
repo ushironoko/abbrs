@@ -6,6 +6,11 @@ authors = ["ushironoko"]
 description = "Fast and safe abbreviation expansion for zsh"
 license = "MIT"
 repository = "https://github.com/ushironoko/kort"
+readme = "README.md"
+keywords = ["zsh", "abbreviation", "shell", "cli"]
+categories = ["command-line-utilities"]
+rust-version = "1.80"
+include = ["src/", "shells/", "README.md", "LICENSE"]
 
 [[bin]]
 name = "kort"
