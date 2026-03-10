@@ -172,11 +172,11 @@ _kort_handle_expand_accept_response() {
 _kort_expand_with_fallback() {
   local handler="$1"
 
-  if _kort_request "expand\t${LBUFFER}\t${RBUFFER}"; then
+  if _kort_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
     if [[ ${_kort_reply[1]} == stale_cache ]]; then
       kort compile 2>/dev/null
       _kort_request "reload"
-      if _kort_request "expand\t${LBUFFER}\t${RBUFFER}"; then
+      if _kort_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
         "$handler" "${_kort_reply[@]}"
       else
         local -a fb
@@ -203,7 +203,7 @@ kort-expand-accept() {
   _kort_expand_with_fallback _kort_handle_expand_accept_response
 
   # Check for reminders before accepting
-  if _kort_request "remind\t${BUFFER}"; then
+  if _kort_request $'remind\t'"${BUFFER}"; then
     if [[ -n ${_kort_reply[1]} ]]; then
       zle -M "${_kort_reply[1]}"
     fi
@@ -220,7 +220,7 @@ kort-expand-accept() {
 
 # Jump to next placeholder on Tab key
 kort-next-placeholder() {
-  if _kort_request "placeholder\t${LBUFFER}\t${RBUFFER}"; then
+  if _kort_request $'placeholder\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
     if [[ ${_kort_reply[1]} == "success" && -n ${_kort_reply[2]} ]]; then
       BUFFER=${_kort_reply[2]}
       CURSOR=${_kort_reply[3]}
