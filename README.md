@@ -314,6 +314,64 @@ You will be prompted for the keyword, expansion, type (regular / global / contex
 
 When you edit `kort.toml`, the next expansion automatically detects the stale cache and recompiles. No manual `kort compile` needed after config changes.
 
+## Performance
+
+kort is designed for imperceptible expansion latency. Below are benchmark results comparing kort with [zsh-abbr](https://github.com/olets/zsh-abbr).
+
+### Architecture comparison
+
+| | kort | zsh-abbr |
+|---|---|---|
+| Language | Rust (compiled binary) | Zsh (shell script) |
+| Data structure | `FxHashMap` (O(1) lookup) | Zsh associative array |
+| Invocation | External process / coproc (`kort serve`) | In-process function call |
+| Cache format | bitcode (binary) | Plain text files |
+
+### Expansion lookup (in-process, criterion)
+
+The core HashMap lookup scales O(1) regardless of abbreviation count:
+
+| Abbreviation count | Lookup time |
+|---|---|
+| 10 | 75 ns |
+| 100 | 75 ns |
+| 500 | 77 ns |
+| 1,000 | 77 ns |
+
+### End-to-end expansion latency
+
+Measured with the comparison benchmark (`benchmarks/comparison/bench.zsh`, 1000 iterations per measurement):
+
+| Abbreviation count | kort expand | kort serve (coproc) | zsh-abbr |
+|---|---|---|---|
+| 10 | ~1.0 ms | ~0.05 ms | ~0.07 ms |
+| 50 | ~1.0 ms | ~0.05 ms | ~0.12 ms |
+| 100 | ~1.0 ms | ~0.05 ms | ~0.18 ms |
+| 500 | ~1.1 ms | ~0.06 ms | ~0.70 ms |
+
+> **Note:** `kort expand` includes fork+exec overhead (~1 ms), which dominates the actual lookup time. `kort serve` eliminates this by running as a persistent coproc, communicating via pipe — achieving **sub-100µs** latency that is faster than zsh-abbr at any scale.
+
+### Other operations (criterion)
+
+| Operation | Time |
+|---|---|
+| Global expansion (100 abbrs) | 81 ns |
+| Placeholder expansion | 123 ns |
+| Contextual expansion (50 regex patterns) | 27 µs |
+| Cache read (100 abbrs, bitcode) | 62 µs |
+| Cache read (500 abbrs, bitcode) | 297 µs |
+| Config parse (100 abbrs, TOML) | 150 µs |
+
+### Run benchmarks yourself
+
+```bash
+# Criterion microbenchmarks (Rust)
+cargo bench
+
+# End-to-end comparison with zsh-abbr (requires zsh + zsh-abbr installed)
+zsh benchmarks/comparison/bench.zsh [iterations]
+```
+
 ## License
 
 MIT
