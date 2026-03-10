@@ -45,14 +45,32 @@ kort-expand-space() {
     stale_cache)
       # Recompile if cache is stale
       kort compile 2>/dev/null
-      # Retry
+      # Retry — re-enter the full case to handle all response types
       out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
-      if [[ $out[1] == "success" && -n $out[2] ]]; then
-        BUFFER=$out[2]
-        CURSOR=$out[3]
-      else
-        zle self-insert
-      fi
+      case $out[1] in
+        success)
+          if [[ -n $out[2] ]]; then
+            BUFFER=$out[2]
+            CURSOR=$out[3]
+          else
+            zle self-insert
+          fi
+          ;;
+        candidates)
+          local count=$out[2]
+          local msg=""
+          local i
+          for (( i=3; i <= count + 2; i++ )); do
+            local kw="${out[$i]%%	*}"
+            local exp="${out[$i]#*	}"
+            msg+="  ${kw} → ${exp}"$'\n'
+          done
+          zle -M "$msg"
+          ;;
+        *)
+          zle self-insert
+          ;;
+      esac
       ;;
     candidates)
       local count=$out[2]
