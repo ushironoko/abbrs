@@ -164,24 +164,93 @@ _kort() {
     'import:Import abbreviations'
     'export:Export abbreviations'
   )
+
+  # Extract --config value from the command line for keyword completion
+  _kort_config_flag() {
+    local i
+    for (( i=2; i < $#words; i++ )); do
+      if [[ $words[$i] == --config && -n $words[$((i+1))] ]]; then
+        echo "--config" "$words[$((i+1))]"
+        return
+      elif [[ $words[$i] == --config=* ]]; then
+        echo "--config" "${words[$i]#--config=}"
+        return
+      fi
+    done
+  }
+
+  _kort_keywords() {
+    local -a cfg_flag keywords
+    cfg_flag=( $(_kort_config_flag) )
+    keywords=( ${(f)"$(kort _list-keywords $cfg_flag 2>/dev/null)"} )
+    _describe 'keyword' keywords
+  }
+
   if (( CURRENT == 2 )); then
     _describe 'subcommand' subcmds
     return
   fi
+
   case $words[2] in
-    erase|show|query)
-      if (( CURRENT == 3 )); then
-        local -a keywords
-        keywords=( ${(f)"$(kort _list-keywords 2>/dev/null)"} )
-        _describe 'keyword' keywords
-      fi
+    compile|list|check|export)
+      _arguments -s \
+        '--config=[Config file path]:config file:_files' \
+        '*:' && return
+      ;;
+    expand)
+      _arguments -s \
+        '--lbuffer=[Buffer left of cursor]:lbuffer:' \
+        '--rbuffer=[Buffer right of cursor]:rbuffer:' \
+        '--cache=[Cache file path]:cache file:_files' \
+        '--config=[Config file path]:config file:_files' \
+        '*:' && return
+      ;;
+    add)
+      _arguments -s \
+        '--global[Register as global abbreviation]' \
+        '--evaluate[Run expansion as command]' \
+        '--function[Run expansion as shell function]' \
+        '--regex[Keyword is a regex pattern]' \
+        '--command=[Only expand as argument of this command]:command:' \
+        '--allow-conflict[Allow conflict with PATH commands]' \
+        '--context-lbuffer=[Context lbuffer regex]:pattern:' \
+        '--context-rbuffer=[Context rbuffer regex]:pattern:' \
+        '--config=[Config file path]:config file:_files' \
+        '1:keyword:' \
+        '2:expansion:' && return
+      ;;
+    erase)
+      _arguments -s \
+        '--command=[Only erase command-scoped entry]:command:' \
+        '--global[Only erase global entry]' \
+        '--config=[Config file path]:config file:_files' \
+        '1:keyword:_kort_keywords' && return
       ;;
     rename)
-      if (( CURRENT == 3 )); then
-        local -a keywords
-        keywords=( ${(f)"$(kort _list-keywords 2>/dev/null)"} )
-        _describe 'keyword' keywords
-      fi
+      _arguments -s \
+        '--command=[Only rename command-scoped entry]:command:' \
+        '--global[Only rename global entry]' \
+        '--config=[Config file path]:config file:_files' \
+        '1:old keyword:_kort_keywords' \
+        '2:new keyword:' && return
+      ;;
+    query)
+      _arguments -s \
+        '--command=[Only query command-scoped entry]:command:' \
+        '--global[Only query global entry]' \
+        '--config=[Config file path]:config file:_files' \
+        '1:keyword:_kort_keywords' && return
+      ;;
+    show)
+      _arguments -s \
+        '--config=[Config file path]:config file:_files' \
+        '1:keyword:_kort_keywords' && return
+      ;;
+    remind)
+      _arguments -s \
+        '--buffer=[Full buffer]:buffer:' \
+        '--cache=[Cache file path]:cache file:_files' \
+        '*:' && return
       ;;
     init)
       if (( CURRENT == 3 )); then
@@ -194,6 +263,10 @@ _kort() {
         local -a sources=('aliases:Import from zsh aliases' 'fish:Import from fish' 'git-aliases:Import from git aliases')
         _describe 'source' sources
       fi
+      # import subcommands also support --config
+      _arguments -s \
+        '--config=[Config file path]:config file:_files' \
+        '*:' && return
       ;;
   esac
 }

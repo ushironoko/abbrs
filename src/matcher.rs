@@ -177,9 +177,11 @@ pub fn build(abbreviations: &[Abbreviation]) -> Matcher {
     }
 
     for keyword in &all_keywords {
-        // Generate all proper prefixes (1..len-1 chars)
-        for prefix_len in 1..keyword.len() {
-            let prefix = &keyword[..prefix_len];
+        // Generate all proper prefixes using char boundaries (safe for multibyte UTF-8)
+        let char_boundaries: Vec<usize> = keyword.char_indices().map(|(i, _)| i).collect();
+        // Skip the last boundary (full keyword = exact match, not a prefix)
+        for &byte_pos in &char_boundaries[1..] {
+            let prefix = &keyword[..byte_pos];
             matcher
                 .prefix_index
                 .entry(prefix.to_string())
@@ -592,5 +594,29 @@ mod tests {
         // "2>/dev/null" should map to "NE"
         let ne_entries = matcher.remind_index.get("2>/dev/null").unwrap();
         assert!(ne_entries.contains(&"NE".to_string()));
+    }
+
+    #[test]
+    fn test_prefix_index_multibyte_keywords() {
+        // Regression test: multibyte UTF-8 keywords must not panic during prefix index build
+        let abbrs = vec![
+            make_abbr("あいう", "hello"),
+            make_abbr("あいえ", "world"),
+        ];
+        let matcher = build(&abbrs);
+
+        // Prefix "あ" should match both keywords
+        let candidates = matcher.prefix_index.get("あ").unwrap();
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.contains(&"あいう".to_string()));
+        assert!(candidates.contains(&"あいえ".to_string()));
+
+        // Prefix "あい" should also match both
+        let candidates = matcher.prefix_index.get("あい").unwrap();
+        assert_eq!(candidates.len(), 2);
+
+        // prefix_candidates should work with multibyte prefix
+        let results = prefix_candidates(&matcher, "あ", true, None);
+        assert_eq!(results.len(), 2);
     }
 }
