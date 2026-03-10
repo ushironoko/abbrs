@@ -6,8 +6,6 @@ use std::path::PathBuf;
 pub enum ConflictType {
     /// Exact match with command on PATH → error
     ExactPathMatch,
-    /// Suffix match with command on PATH → warning
-    SuffixPathMatch,
     /// Shell builtin → error
     ShellBuiltin,
 }
@@ -25,7 +23,6 @@ pub struct Conflict {
 #[derive(Debug, Default)]
 pub struct ConflictReport {
     pub errors: Vec<Conflict>,
-    pub warnings: Vec<Conflict>,
 }
 
 impl ConflictReport {
@@ -46,18 +43,6 @@ impl std::fmt::Display for Conflict {
                         .as_ref()
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|| self.conflicting_command.clone())
-                )
-            }
-            ConflictType::SuffixPathMatch => {
-                write!(
-                    f,
-                    "\"{}\" matches suffix of command \"{}\" on PATH: {}",
-                    self.keyword,
-                    self.conflicting_command,
-                    self.command_path
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default()
                 )
             }
             ConflictType::ShellBuiltin => {
@@ -226,7 +211,6 @@ pub fn scan_path() -> Vec<(String, PathBuf)> {
 pub fn detect_conflicts(
     abbreviations: &[Abbreviation],
     path_commands: &[(String, PathBuf)],
-    strict: bool,
 ) -> ConflictReport {
     let mut report = ConflictReport::default();
     let builtins = zsh_builtins();
@@ -254,9 +238,8 @@ pub fn detect_conflicts(
             continue; // Report builtin conflict as error and skip PATH check
         }
 
-        // 2. Check for PATH command conflicts
+        // 2. Check for exact PATH command conflicts
         for (cmd_name, cmd_path) in path_commands {
-            // Exact match
             if cmd_name == keyword {
                 report.errors.push(Conflict {
                     keyword: keyword.clone(),
@@ -264,20 +247,6 @@ pub fn detect_conflicts(
                     conflicting_command: cmd_name.clone(),
                     command_path: Some(cmd_path.clone()),
                 });
-            }
-            // Suffix match (not exact match, command name ends with keyword)
-            else if cmd_name.len() > keyword.len() && cmd_name.ends_with(keyword.as_str()) {
-                let conflict = Conflict {
-                    keyword: keyword.clone(),
-                    conflict_type: ConflictType::SuffixPathMatch,
-                    conflicting_command: cmd_name.clone(),
-                    command_path: Some(cmd_path.clone()),
-                };
-                if strict {
-                    report.errors.push(conflict);
-                } else {
-                    report.warnings.push(conflict);
-                }
             }
         }
     }
@@ -318,43 +287,25 @@ mod tests {
     fn test_detect_exact_path_match() {
         let abbrs = vec![make_abbr("cc")];
         let path_cmds = make_path_commands(&[("cc", "/usr/bin/cc")]);
-        let report = detect_conflicts(&abbrs, &path_cmds, false);
+        let report = detect_conflicts(&abbrs, &path_cmds);
         assert_eq!(report.errors.len(), 1);
         assert_eq!(report.errors[0].conflict_type, ConflictType::ExactPathMatch);
         assert_eq!(report.errors[0].keyword, "cc");
     }
 
     #[test]
-    fn test_detect_suffix_path_match_warning() {
+    fn test_no_suffix_match() {
         let abbrs = vec![make_abbr("cc")];
         let path_cmds = make_path_commands(&[("gcc", "/usr/bin/gcc")]);
-        let report = detect_conflicts(&abbrs, &path_cmds, false);
+        let report = detect_conflicts(&abbrs, &path_cmds);
         assert!(report.errors.is_empty());
-        assert_eq!(report.warnings.len(), 1);
-        assert_eq!(
-            report.warnings[0].conflict_type,
-            ConflictType::SuffixPathMatch
-        );
-    }
-
-    #[test]
-    fn test_detect_suffix_path_match_strict() {
-        let abbrs = vec![make_abbr("cc")];
-        let path_cmds = make_path_commands(&[("gcc", "/usr/bin/gcc")]);
-        let report = detect_conflicts(&abbrs, &path_cmds, true);
-        assert_eq!(report.errors.len(), 1);
-        assert_eq!(
-            report.errors[0].conflict_type,
-            ConflictType::SuffixPathMatch
-        );
-        assert!(report.warnings.is_empty());
     }
 
     #[test]
     fn test_detect_shell_builtin() {
         let abbrs = vec![make_abbr("cd"), make_abbr("echo")];
         let path_cmds = vec![];
-        let report = detect_conflicts(&abbrs, &path_cmds, false);
+        let report = detect_conflicts(&abbrs, &path_cmds);
         assert_eq!(report.errors.len(), 2);
         assert!(report
             .errors
@@ -366,18 +317,16 @@ mod tests {
     fn test_allow_conflict_skips() {
         let abbrs = vec![make_abbr_allow_conflict("cc")];
         let path_cmds = make_path_commands(&[("cc", "/usr/bin/cc")]);
-        let report = detect_conflicts(&abbrs, &path_cmds, false);
+        let report = detect_conflicts(&abbrs, &path_cmds);
         assert!(report.errors.is_empty());
-        assert!(report.warnings.is_empty());
     }
 
     #[test]
     fn test_no_conflicts() {
         let abbrs = vec![make_abbr("g"), make_abbr("gc")];
         let path_cmds = make_path_commands(&[("git", "/usr/bin/git"), ("ls", "/bin/ls")]);
-        let report = detect_conflicts(&abbrs, &path_cmds, false);
+        let report = detect_conflicts(&abbrs, &path_cmds);
         assert!(report.errors.is_empty());
-        assert!(report.warnings.is_empty());
     }
 
     #[test]
@@ -388,12 +337,11 @@ mod tests {
             ("gcc", "/usr/bin/gcc"),
             ("gs", "/usr/local/bin/gs"),
         ]);
-        let report = detect_conflicts(&abbrs, &path_cmds, false);
-        // cc: exact match (error) + gcc suffix (warning)
+        let report = detect_conflicts(&abbrs, &path_cmds);
+        // cc: exact match (error)
         // gs: exact match (error)
         // cd: builtin (error)
-        assert_eq!(report.errors.len(), 3); // cc exact, gs exact, cd builtin
-        assert_eq!(report.warnings.len(), 1); // gcc suffix
+        assert_eq!(report.errors.len(), 3);
     }
 
     #[test]
@@ -440,14 +388,12 @@ mod tests {
     }
 
     #[test]
-    fn test_suffix_match_not_triggered_for_same_length() {
-        // "git" and "git" is an exact match, not a suffix match
+    fn test_exact_match_detection() {
         let abbrs = vec![make_abbr("git")];
         let path_cmds = make_path_commands(&[("git", "/usr/bin/git")]);
-        let report = detect_conflicts(&abbrs, &path_cmds, false);
+        let report = detect_conflicts(&abbrs, &path_cmds);
         assert_eq!(report.errors.len(), 1);
         assert_eq!(report.errors[0].conflict_type, ConflictType::ExactPathMatch);
-        assert!(report.warnings.is_empty());
     }
 
     #[test]

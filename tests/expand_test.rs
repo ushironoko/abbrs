@@ -1,9 +1,10 @@
+use assert_cmd::cargo::cargo_bin_cmd;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn kort_cmd() -> Command {
-    Command::cargo_bin("kort").unwrap()
+    cargo_bin_cmd!("kort")
 }
 
 fn setup_compiled(dir: &TempDir, config_content: &str) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -11,8 +12,7 @@ fn setup_compiled(dir: &TempDir, config_content: &str) -> (std::path::PathBuf, s
     std::fs::write(&config_path, config_content).unwrap();
 
     // Compile
-    Command::cargo_bin("kort")
-        .unwrap()
+    cargo_bin_cmd!("kort")
         .args(["compile", "--config", config_path.to_str().unwrap()])
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .assert()

@@ -341,7 +341,7 @@ mod tests {
 
     fn setup_config(dir: &tempfile::TempDir) -> std::path::PathBuf {
         let path = dir.path().join("kort.toml");
-        std::fs::write(&path, "[settings]\nstrict = false\n").unwrap();
+        std::fs::write(&path, "[settings]\n").unwrap();
         path
     }
 

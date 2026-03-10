@@ -540,7 +540,7 @@ mod tests {
         let path = dir.path().join("kort.toml");
 
         // Create a minimal config first
-        std::fs::write(&path, "[settings]\nstrict = false\n").unwrap();
+        std::fs::write(&path, "[settings]\n").unwrap();
 
         let params = AddParams {
             keyword: "g".to_string(),
@@ -577,7 +577,7 @@ mod tests {
         let path = dir.path().join("kort.toml");
 
         let initial = r#"[settings]
-strict = false
+
 
 [[abbr]]
 keyword = "g"
@@ -608,7 +608,7 @@ expansion = "git"
         let path = dir.path().join("kort.toml");
 
         let initial = r#"[settings]
-strict = false
+
 
 [[abbr]]
 keyword = "co"
@@ -645,7 +645,7 @@ command = "git"
         let path = dir.path().join("kort.toml");
 
         let initial = r#"[settings]
-strict = false
+
 
 [[abbr]]
 keyword = "co"
@@ -678,7 +678,7 @@ expansion = "checkout"
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("kort.toml");
 
-        std::fs::write(&path, "[settings]\nstrict = false\n").unwrap();
+        std::fs::write(&path, "[settings]\n").unwrap();
 
         let params = AddParams {
             keyword: "NE".to_string(),
@@ -706,7 +706,7 @@ expansion = "checkout"
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("kort.toml");
 
-        std::fs::write(&path, "[settings]\nstrict = false\n").unwrap();
+        std::fs::write(&path, "[settings]\n").unwrap();
 
         let params = AddParams {
             keyword: "main".to_string(),
@@ -736,7 +736,7 @@ expansion = "checkout"
         let path = dir.path().join("kort.toml");
 
         let initial = r#"[settings]
-strict = false
+
 
 [[abbr]]
 keyword = "main"
@@ -771,7 +771,7 @@ context.lbuffer = "^git (checkout|switch)"
         let path = dir.path().join("kort.toml");
 
         let initial = r#"[settings]
-strict = false
+
 
 [[abbr]]
 keyword = "main"
@@ -804,7 +804,7 @@ context.lbuffer = "^git (checkout|switch)"
         let path = dir.path().join("kort.toml");
 
         let initial = r#"[settings]
-strict = false
+
 
 [[abbr]]
 keyword = "main"
@@ -838,7 +838,7 @@ context.lbuffer = "^git (checkout|switch)"
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("kort.toml");
 
-        let initial = "[settings]\nstrict = false\n";
+        let initial = "[settings]\n";
         std::fs::write(&path, initial).unwrap();
 
         // function + evaluate is invalid (mutually exclusive)
@@ -868,7 +868,7 @@ context.lbuffer = "^git (checkout|switch)"
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("kort.toml");
 
-        let initial = "[settings]\nstrict = false\n";
+        let initial = "[settings]\n";
         std::fs::write(&path, initial).unwrap();
 
         let params = AddParams {

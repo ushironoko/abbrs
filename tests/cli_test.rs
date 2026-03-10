@@ -1,9 +1,10 @@
+use assert_cmd::cargo::cargo_bin_cmd;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn kort_cmd() -> Command {
-    Command::cargo_bin("kort").unwrap()
+    cargo_bin_cmd!("kort")
 }
 
 fn create_config(dir: &TempDir, content: &str) -> std::path::PathBuf {
@@ -108,7 +109,7 @@ fn test_add_with_args() {
     let config_path = create_config(
         &dir,
         r#"[settings]
-strict = false
+
 "#,
     );
 
@@ -135,7 +136,7 @@ fn test_add_with_global_flag() {
     let config_path = create_config(
         &dir,
         r#"[settings]
-strict = false
+
 "#,
     );
 
@@ -161,7 +162,7 @@ fn test_add_with_context() {
     let config_path = create_config(
         &dir,
         r#"[settings]
-strict = false
+
 "#,
     );
 
@@ -209,7 +210,7 @@ expansion = "git"
 #[test]
 fn test_add_missing_expansion_error() {
     let dir = TempDir::new().unwrap();
-    let config_path = create_config(&dir, "[settings]\nstrict = false\n");
+    let config_path = create_config(&dir, "[settings]\n");
 
     kort_cmd()
         .args([
@@ -228,6 +229,43 @@ fn test_add_missing_config() {
         .args(["add", "g", "git", "--config", "/nonexistent/kort.toml"])
         .assert()
         .failure();
+}
+
+#[test]
+fn test_init_zsh_outputs_shell_script() {
+    kort_cmd()
+        .args(["init", "zsh"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("kort-expand-space"))
+        .stdout(predicate::str::contains("zle -N"))
+        .stdout(predicate::str::contains("bindkey"));
+}
+
+#[test]
+fn test_init_config_creates_template() {
+    let dir = TempDir::new().unwrap();
+
+    kort_cmd()
+        .args(["init", "config"])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .assert()
+        .success();
+
+    let xdg_config_path = dir.path().join("kort").join("kort.toml");
+    assert!(xdg_config_path.exists(), "config file should be created at XDG path");
+    let content = std::fs::read_to_string(&xdg_config_path).unwrap();
+    assert!(content.contains("[settings]"), "config template should contain [settings]");
+}
+
+#[test]
+fn test_init_without_subcommand_shows_help() {
+    kort_cmd()
+        .arg("init")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("zsh"))
+        .stderr(predicate::str::contains("config"));
 }
 
 #[test]

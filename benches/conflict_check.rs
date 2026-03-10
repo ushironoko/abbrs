@@ -33,7 +33,6 @@ fn bench_conflict_detection(c: &mut Criterion) {
             conflict::detect_conflicts(
                 black_box(&abbrs),
                 black_box(&path_cmds),
-                black_box(false),
             )
         });
     });

@@ -5,42 +5,31 @@ use std::path::Path;
 /// Compile result
 #[derive(Debug)]
 pub struct CompileResult {
-    pub warnings: Vec<conflict::Conflict>,
     pub abbr_count: usize,
 }
 
 /// Main flow of kort compile
-pub fn compile(config_path: &Path, output_path: &Path, strict: bool) -> Result<CompileResult> {
+pub fn compile(config_path: &Path, output_path: &Path) -> Result<CompileResult> {
     // 1. Parse TOML
     let cfg = config::load(config_path)?;
-
-    // Combine settings.strict and CLI --strict with OR
-    let effective_strict = strict || cfg.settings.strict;
 
     // 2. Scan PATH
     let path_commands = conflict::scan_path();
 
     // 3. Detect conflicts
-    let report = conflict::detect_conflicts(&cfg.abbr, &path_commands, effective_strict);
+    let report = conflict::detect_conflicts(&cfg.abbr, &path_commands);
 
     // 4. Fail compilation if there are errors
     if report.has_errors() {
-        // Build error message
         let mut message = String::from("Conflicts detected:\n");
         for err in &report.errors {
             message.push_str(&format!("  ✗ {}\n", err));
-        }
-        for warn in &report.warnings {
-            message.push_str(&format!("  ⚠ {}\n", warn));
         }
         message.push_str("\nHint: set allow_conflict = true to allow individual conflicts");
         anyhow::bail!(message);
     }
 
-    // 5. Collect warnings
-    let warnings = report.warnings.clone();
-
-    // 6. Build Matcher and write binary cache
+    // 5. Build Matcher and write binary cache
     let matcher = matcher::build(&cfg.abbr);
     let settings = cache::CachedSettings {
         remind: cfg.settings.remind,
@@ -49,7 +38,6 @@ pub fn compile(config_path: &Path, output_path: &Path, strict: bool) -> Result<C
     cache::write(output_path, &matcher, &settings, config_path)?;
 
     Ok(CompileResult {
-        warnings,
         abbr_count: cfg.abbr.len(),
     })
 }
@@ -88,7 +76,7 @@ expansion = "git commit"
         );
         let cache_path = dir.path().join("kort.cache");
 
-        let result = compile(&config_path, &cache_path, false).unwrap();
+        let result = compile(&config_path, &cache_path).unwrap();
         assert_eq!(result.abbr_count, 2);
         assert!(cache_path.exists());
     }
@@ -106,7 +94,7 @@ expansion = "custom_cd"
         );
         let cache_path = dir.path().join("kort.cache");
 
-        let result = compile(&config_path, &cache_path, false);
+        let result = compile(&config_path, &cache_path);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("cd"));
@@ -127,7 +115,7 @@ allow_conflict = true
         );
         let cache_path = dir.path().join("kort.cache");
 
-        let result = compile(&config_path, &cache_path, false);
+        let result = compile(&config_path, &cache_path);
         assert!(result.is_ok());
     }
 
@@ -162,27 +150,6 @@ expansion = "git"
     }
 
     #[test]
-    fn test_compile_settings_strict() {
-        let dir = TempDir::new().unwrap();
-        // Succeeds in strict mode when keyword has no suffix conflict
-        let config_path = write_config(
-            &dir,
-            r#"
-[settings]
-strict = true
-
-[[abbr]]
-keyword = "xyzzy"
-expansion = "some command"
-"#,
-        );
-        let cache_path = dir.path().join("kort.cache");
-
-        let result = compile(&config_path, &cache_path, false);
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_compile_with_settings() {
         let dir = TempDir::new().unwrap();
         let config_path = write_config(
@@ -199,7 +166,7 @@ expansion = "git"
         );
         let cache_path = dir.path().join("kort.cache");
 
-        let result = compile(&config_path, &cache_path, false).unwrap();
+        let result = compile(&config_path, &cache_path).unwrap();
         assert_eq!(result.abbr_count, 1);
 
         // Verify settings are stored in cache

@@ -5,7 +5,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use tempfile::TempDir;
 
 fn generate_toml(count: usize) -> String {
-    let mut toml = String::from("[settings]\nstrict = false\n\n");
+    let mut toml = String::from("[settings]\n\n");
     for i in 0..count {
         toml.push_str(&format!(
             "[[abbr]]\nkeyword = \"abbr{}\"\nexpansion = \"expanded command {} with args\"\n\n",

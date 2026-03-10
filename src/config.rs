@@ -13,8 +13,6 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
-    pub strict: bool,
-    #[serde(default)]
     pub prefixes: Vec<String>,
     #[serde(default)]
     pub remind: bool,
@@ -159,9 +157,6 @@ expansion = "git"
     #[test]
     fn test_parse_full_config() {
         let toml = r#"
-[settings]
-strict = true
-
 [[abbr]]
 keyword = "g"
 expansion = "git"
@@ -192,7 +187,6 @@ evaluate = true
 global = true
 "#;
         let config = parse(toml).unwrap();
-        assert!(config.settings.strict);
         assert_eq!(config.abbr.len(), 6);
 
         // global
@@ -212,18 +206,6 @@ global = true
     fn test_parse_empty_config() {
         let toml = "";
         let config = parse(toml).unwrap();
-        assert!(config.abbr.is_empty());
-        assert!(!config.settings.strict);
-    }
-
-    #[test]
-    fn test_parse_settings_only() {
-        let toml = r#"
-[settings]
-strict = true
-"#;
-        let config = parse(toml).unwrap();
-        assert!(config.settings.strict);
         assert!(config.abbr.is_empty());
     }
 
@@ -347,6 +329,7 @@ function = true
             settings: Settings::default(),
             abbr: vec![],
         };
-        assert!(!config.settings.strict);
+        assert!(config.settings.prefixes.is_empty());
+        assert!(!config.settings.remind);
     }
 }

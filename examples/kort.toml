@@ -2,7 +2,6 @@
 # Place this file at: ~/.config/kort/kort.toml
 
 [settings]
-strict = false  # true: treat suffix conflicts as errors
 
 # === Git shortcuts ===
 
