@@ -51,6 +51,9 @@ pub struct Matcher {
     pub regex_abbrs: Vec<CompiledAbbr>,
     /// Reverse index for remind feature (expansion first word -> keyword)
     pub remind_index: FxHashMap<String, Vec<String>>,
+    /// Prefix index: maps a typed prefix to candidate keywords (O(1) lookup)
+    /// Built at compile time. Only stores proper prefixes (excludes exact matches).
+    pub prefix_index: FxHashMap<String, Vec<String>>,
 }
 
 impl Matcher {
@@ -62,6 +65,7 @@ impl Matcher {
             contextual: FxHashMap::default(),
             regex_abbrs: Vec::new(),
             remind_index: FxHashMap::default(),
+            prefix_index: FxHashMap::default(),
         }
     }
 }
@@ -153,7 +157,81 @@ pub fn build(abbreviations: &[Abbreviation]) -> Matcher {
         }
     }
 
+    // Build prefix index for regular, global, and command_scoped keywords
+    // Contextual and regex_abbrs are excluded (handled by existing priority chain)
+    let mut all_keywords: Vec<&str> = Vec::new();
+    for key in matcher.regular.keys() {
+        all_keywords.push(key);
+    }
+    for key in matcher.global.keys() {
+        if !all_keywords.contains(&key.as_str()) {
+            all_keywords.push(key);
+        }
+    }
+    for cmd_map in matcher.command_scoped.values() {
+        for key in cmd_map.keys() {
+            if !all_keywords.contains(&key.as_str()) {
+                all_keywords.push(key);
+            }
+        }
+    }
+
+    for keyword in &all_keywords {
+        // Generate all proper prefixes (1..len-1 chars)
+        for prefix_len in 1..keyword.len() {
+            let prefix = &keyword[..prefix_len];
+            matcher
+                .prefix_index
+                .entry(prefix.to_string())
+                .or_default()
+                .push(keyword.to_string());
+        }
+    }
+
+    // Sort each prefix's candidates for stable output, then deduplicate
+    for candidates in matcher.prefix_index.values_mut() {
+        candidates.sort();
+        candidates.dedup();
+    }
+
     matcher
+}
+
+/// Get prefix-match candidates from the prefix index (O(1) lookup)
+/// Returns compiled abbreviations matching the given prefix, filtered by scope.
+pub fn prefix_candidates<'a>(
+    matcher: &'a Matcher,
+    prefix: &str,
+    is_command_position: bool,
+    current_command: Option<&str>,
+) -> Vec<&'a CompiledAbbr> {
+    let Some(keywords) = matcher.prefix_index.get(prefix) else {
+        return Vec::new();
+    };
+
+    let mut result = Vec::new();
+    for keyword in keywords {
+        // Command-scoped lookup
+        if let Some(cmd) = current_command {
+            if let Some(abbr) = lookup_command_scoped(matcher, cmd, keyword) {
+                result.push(abbr);
+                continue;
+            }
+        }
+        // Regular (only in command position)
+        if is_command_position {
+            if let Some(abbr) = lookup_regular(matcher, keyword) {
+                result.push(abbr);
+                continue;
+            }
+        }
+        // Global (any position)
+        if let Some(abbr) = lookup_global(matcher, keyword) {
+            result.push(abbr);
+        }
+    }
+
+    result
 }
 
 /// Look up keyword in regular map (O(1))
@@ -397,6 +475,104 @@ mod tests {
         assert!(matcher.command_scoped.is_empty());
         assert!(matcher.regex_abbrs.is_empty());
         assert!(matcher.remind_index.is_empty());
+    }
+
+    #[test]
+    fn test_prefix_index_built() {
+        let abbrs = vec![
+            make_abbr("g", "git"),
+            make_abbr("gc", "git commit"),
+            make_abbr("gp", "git push"),
+            make_abbr("gd", "git diff"),
+        ];
+        let matcher = build(&abbrs);
+
+        // "g" is an exact match for "g", so prefix_index["g"] should contain gc, gd, gp
+        let g_candidates = matcher.prefix_index.get("g").unwrap();
+        assert_eq!(g_candidates, &vec!["gc", "gd", "gp"]);
+
+        // No prefix index entry for "gc" since only "gp" would not match
+        assert!(matcher.prefix_index.get("gc").is_none());
+        assert!(matcher.prefix_index.get("gp").is_none());
+    }
+
+    #[test]
+    fn test_prefix_index_sorted() {
+        let abbrs = vec![
+            make_abbr("ls", "ls --color"),
+            make_abbr("la", "ls -A"),
+            make_abbr("ll", "ls -alF"),
+            make_abbr("lg", "ls -G"),
+        ];
+        let matcher = build(&abbrs);
+
+        let l_candidates = matcher.prefix_index.get("l").unwrap();
+        assert_eq!(l_candidates, &vec!["la", "lg", "ll", "ls"]);
+    }
+
+    #[test]
+    fn test_prefix_candidates_command_position() {
+        let abbrs = vec![
+            make_abbr("gc", "git commit"),
+            make_abbr("gp", "git push"),
+            make_abbr("gd", "git diff"),
+        ];
+        let matcher = build(&abbrs);
+
+        let candidates = prefix_candidates(&matcher, "g", true, None);
+        assert_eq!(candidates.len(), 3);
+    }
+
+    #[test]
+    fn test_prefix_candidates_not_command_position() {
+        let abbrs = vec![
+            make_abbr("gc", "git commit"),
+            make_global_abbr("gx", "global x"),
+        ];
+        let matcher = build(&abbrs);
+
+        // Not in command position: only global should match
+        let candidates = prefix_candidates(&matcher, "g", false, None);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].keyword, "gx");
+    }
+
+    #[test]
+    fn test_prefix_candidates_command_scoped() {
+        let abbrs = vec![
+            make_command_scoped_abbr("co", "checkout", "git"),
+            make_command_scoped_abbr("cm", "commit", "git"),
+        ];
+        let matcher = build(&abbrs);
+
+        let candidates = prefix_candidates(&matcher, "c", false, Some("git"));
+        assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn test_prefix_candidates_empty() {
+        let abbrs = vec![make_abbr("g", "git")];
+        let matcher = build(&abbrs);
+
+        let candidates = prefix_candidates(&matcher, "x", true, None);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn test_prefix_index_excludes_contextual_and_regex() {
+        let abbrs = vec![
+            make_contextual_abbr("main", "main --branch", "^git checkout"),
+            Abbreviation {
+                keyword: "^b".to_string(),
+                expansion: "branch".to_string(),
+                regex: true,
+                ..Default::default()
+            },
+        ];
+        let matcher = build(&abbrs);
+
+        // Contextual and regex keywords should not be in prefix_index
+        assert!(matcher.prefix_index.is_empty());
     }
 
     #[test]

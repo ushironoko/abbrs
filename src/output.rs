@@ -1,5 +1,12 @@
 use std::fmt;
 
+/// A single candidate for prefix match display
+#[derive(Debug, Clone)]
+pub struct CandidateEntry {
+    pub keyword: String,
+    pub expansion: String,
+}
+
 /// Expansion result
 #[derive(Debug)]
 pub enum ExpandOutput {
@@ -27,6 +34,10 @@ pub enum ExpandOutput {
     },
     /// Cache is stale
     StaleCache,
+    /// Multiple prefix-match candidates found
+    Candidates {
+        candidates: Vec<CandidateEntry>,
+    },
 }
 
 impl fmt::Display for ExpandOutput {
@@ -59,6 +70,22 @@ impl fmt::Display for ExpandOutput {
             }
             ExpandOutput::StaleCache => {
                 write!(f, "stale_cache")
+            }
+            ExpandOutput::Candidates { candidates } => {
+                writeln!(f, "candidates")?;
+                writeln!(f, "{}", candidates.len())?;
+                for (i, c) in candidates.iter().enumerate() {
+                    let escaped = c
+                        .expansion
+                        .replace('\n', "\\n")
+                        .replace('\t', "\\t");
+                    if i < candidates.len() - 1 {
+                        writeln!(f, "{}\t{}", c.keyword, escaped)?;
+                    } else {
+                        write!(f, "{}\t{}", c.keyword, escaped)?;
+                    }
+                }
+                Ok(())
             }
         }
     }
@@ -154,5 +181,51 @@ mod tests {
     fn test_placeholder_output_no_placeholder_display() {
         let output = PlaceholderOutput::NoPlaceholder;
         assert_eq!(output.to_string(), "no_placeholder");
+    }
+
+    #[test]
+    fn test_expand_output_candidates_display() {
+        let output = ExpandOutput::Candidates {
+            candidates: vec![
+                CandidateEntry {
+                    keyword: "gc".to_string(),
+                    expansion: "git commit -m '{{message}}'".to_string(),
+                },
+                CandidateEntry {
+                    keyword: "gp".to_string(),
+                    expansion: "git push".to_string(),
+                },
+                CandidateEntry {
+                    keyword: "gd".to_string(),
+                    expansion: "git diff".to_string(),
+                },
+            ],
+        };
+        let formatted = output.to_string();
+        assert_eq!(
+            formatted,
+            "candidates\n3\ngc\tgit commit -m '{{message}}'\ngp\tgit push\ngd\tgit diff"
+        );
+    }
+
+    #[test]
+    fn test_expand_output_candidates_escape_newline_tab() {
+        let output = ExpandOutput::Candidates {
+            candidates: vec![
+                CandidateEntry {
+                    keyword: "a".to_string(),
+                    expansion: "line1\nline2".to_string(),
+                },
+                CandidateEntry {
+                    keyword: "b".to_string(),
+                    expansion: "col1\tcol2".to_string(),
+                },
+            ],
+        };
+        let formatted = output.to_string();
+        assert_eq!(
+            formatted,
+            "candidates\n2\na\tline1\\nline2\nb\tcol1\\tcol2"
+        );
     }
 }

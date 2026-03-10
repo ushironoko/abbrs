@@ -1,6 +1,6 @@
 use crate::context::{self, RegexCache};
 use crate::matcher::{self, CompiledAbbr, ExpandAction, Matcher};
-use crate::output::ExpandOutput;
+use crate::output::{CandidateEntry, ExpandOutput};
 use crate::placeholder;
 
 /// Expansion input
@@ -117,37 +117,44 @@ pub fn expand(
         }
     }
 
-    // Fast path: if no command-scoped, no prefixes, and no regex abbreviations,
-    // use simple command position check (avoids last_command_segment parsing)
+    // Compute command position and current command for both exact and prefix matching
     let has_advanced_features = !matcher_data.command_scoped.is_empty()
         || !prefixes.is_empty()
         || !matcher_data.regex_abbrs.is_empty();
 
-    if has_advanced_features {
-        // 2. Command-scoped: extract command from last segment
+    let (in_command_position, current_command) = if has_advanced_features {
         let segment = last_command_segment(&input.lbuffer);
+        let cmd = extract_command(segment).map(|s| s.to_string());
+        let is_cmd_pos = is_command_or_prefix_position(segment, keyword, prefixes);
+
+        // 2. Command-scoped: extract command from last segment
         if !matcher_data.command_scoped.is_empty() {
-            if let Some(cmd) = extract_command(segment) {
-                if let Some(abbr) = matcher::lookup_command_scoped(matcher_data, cmd, keyword) {
+            if let Some(ref cmd_name) = cmd {
+                if let Some(abbr) = matcher::lookup_command_scoped(matcher_data, cmd_name, keyword)
+                {
                     return build_output(prefix, abbr, keyword, &input.rbuffer);
                 }
             }
         }
 
         // 3. If in command position (or after prefix), search regular abbreviations
-        if is_command_or_prefix_position(segment, keyword, prefixes) {
+        if is_cmd_pos {
             if let Some(abbr) = matcher::lookup_regular(matcher_data, keyword) {
                 return build_output(prefix, abbr, keyword, &input.rbuffer);
             }
         }
+
+        (is_cmd_pos, cmd)
     } else {
         // Fast path: simple command position check (no segment parsing needed)
-        if prefix.trim().is_empty() {
+        let is_cmd_pos = prefix.trim().is_empty();
+        if is_cmd_pos {
             if let Some(abbr) = matcher::lookup_regular(matcher_data, keyword) {
                 return build_output(prefix, abbr, keyword, &input.rbuffer);
             }
         }
-    }
+        (is_cmd_pos, None)
+    };
 
     // 4. Search global abbreviations (regardless of position)
     if let Some(abbr) = matcher::lookup_global(matcher_data, keyword) {
@@ -159,6 +166,25 @@ pub fn expand(
         if regex_cache.is_match(&abbr.keyword, keyword) == Some(true) {
             return build_output(prefix, abbr, keyword, &input.rbuffer);
         }
+    }
+
+    // 6. Prefix match fallback (O(1) lookup via prefix_index)
+    let candidates = matcher::prefix_candidates(
+        matcher_data,
+        keyword,
+        in_command_position,
+        current_command.as_deref(),
+    );
+    if candidates.len() >= 2 {
+        return ExpandOutput::Candidates {
+            candidates: candidates
+                .iter()
+                .map(|abbr| CandidateEntry {
+                    keyword: abbr.keyword.clone(),
+                    expansion: abbr.expansion.clone(),
+                })
+                .collect(),
+        };
     }
 
     ExpandOutput::NoMatch
@@ -661,6 +687,125 @@ mod tests {
                 assert_eq!(rbuffer, "");
             }
             other => panic!("Expected Function, got {:?}", other),
+        }
+    }
+
+    // === Prefix match fallback tests ===
+
+    #[test]
+    fn test_expand_prefix_exact_match_takes_priority() {
+        // "g" has exact match → should Success, not Candidates
+        let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
+        let input = ExpandInput {
+            lbuffer: "g".to_string(),
+            rbuffer: "".to_string(),
+        };
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
+            ExpandOutput::Success { buffer, .. } => {
+                assert_eq!(buffer, "git");
+            }
+            other => panic!("Expected Success, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_expand_prefix_no_candidates() {
+        // "x" has no prefix matches → NoMatch
+        let matcher = build_test_matcher();
+        let rc = cache_for(&matcher);
+        let input = ExpandInput {
+            lbuffer: "xyz".to_string(),
+            rbuffer: "".to_string(),
+        };
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
+            ExpandOutput::NoMatch => {}
+            other => panic!("Expected NoMatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_expand_prefix_single_candidate_returns_no_match() {
+        // Only one prefix candidate → NoMatch (initial version does not auto-expand)
+        let abbrs = vec![Abbreviation {
+            keyword: "gc".to_string(),
+            expansion: "git commit".to_string(),
+            ..Default::default()
+        }];
+        let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
+        let input = ExpandInput {
+            lbuffer: "g".to_string(),
+            rbuffer: "".to_string(),
+        };
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
+            ExpandOutput::NoMatch => {}
+            other => panic!("Expected NoMatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_expand_prefix_multiple_candidates() {
+        // "g" with gc, gp → Candidates
+        let abbrs = vec![
+            Abbreviation {
+                keyword: "gc".to_string(),
+                expansion: "git commit".to_string(),
+                ..Default::default()
+            },
+            Abbreviation {
+                keyword: "gp".to_string(),
+                expansion: "git push".to_string(),
+                ..Default::default()
+            },
+        ];
+        let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
+        let input = ExpandInput {
+            lbuffer: "g".to_string(),
+            rbuffer: "".to_string(),
+        };
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
+            ExpandOutput::Candidates { candidates } => {
+                assert_eq!(candidates.len(), 2);
+                assert_eq!(candidates[0].keyword, "gc");
+                assert_eq!(candidates[1].keyword, "gp");
+            }
+            other => panic!("Expected Candidates, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_expand_prefix_exact_match_with_prefix_candidates() {
+        // "g" exact match exists + gc, gp prefix match → Success (exact match priority)
+        let abbrs = vec![
+            Abbreviation {
+                keyword: "g".to_string(),
+                expansion: "git".to_string(),
+                ..Default::default()
+            },
+            Abbreviation {
+                keyword: "gc".to_string(),
+                expansion: "git commit".to_string(),
+                ..Default::default()
+            },
+            Abbreviation {
+                keyword: "gp".to_string(),
+                expansion: "git push".to_string(),
+                ..Default::default()
+            },
+        ];
+        let matcher = matcher::build(&abbrs);
+        let rc = cache_for(&matcher);
+        let input = ExpandInput {
+            lbuffer: "g".to_string(),
+            rbuffer: "".to_string(),
+        };
+        match expand(&input, &matcher, &no_prefixes(), &rc) {
+            ExpandOutput::Success { buffer, .. } => {
+                assert_eq!(buffer, "git");
+            }
+            other => panic!("Expected Success, got {:?}", other),
         }
     }
 

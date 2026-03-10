@@ -279,3 +279,54 @@ fn test_list_empty() {
         .success()
         .stdout(predicate::str::contains("no abbreviations registered"));
 }
+
+#[test]
+fn test_list_keywords_output_format() {
+    let dir = TempDir::new().unwrap();
+    let config_path = create_config(
+        &dir,
+        r#"
+[[abbr]]
+keyword = "g"
+expansion = "git"
+
+[[abbr]]
+keyword = "gc"
+expansion = "git commit"
+
+[[abbr]]
+keyword = "NE"
+expansion = "2>/dev/null"
+global = true
+"#,
+    );
+
+    kort_cmd()
+        .args(["_list-keywords", "--config", config_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("g:git"))
+        .stdout(predicate::str::contains("gc:git commit"))
+        .stdout(predicate::str::contains("NE:2>/dev/null"));
+}
+
+#[test]
+fn test_list_keywords_empty_config() {
+    let dir = TempDir::new().unwrap();
+    let config_path = create_config(&dir, "");
+
+    kort_cmd()
+        .args(["_list-keywords", "--config", config_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn test_list_keywords_hidden_from_help() {
+    kort_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("_list-keywords").not());
+}

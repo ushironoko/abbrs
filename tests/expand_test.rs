@@ -232,3 +232,83 @@ fn test_next_placeholder_none() {
         .success()
         .stdout(predicate::str::starts_with("no_placeholder"));
 }
+
+#[test]
+fn test_expand_prefix_candidates() {
+    let dir = TempDir::new().unwrap();
+    let (config_path, cache_path) = setup_compiled(
+        &dir,
+        r#"
+[[abbr]]
+keyword = "gc"
+expansion = "git commit"
+
+[[abbr]]
+keyword = "gp"
+expansion = "git push"
+
+[[abbr]]
+keyword = "gd"
+expansion = "git diff"
+"#,
+    );
+
+    kort_cmd()
+        .args([
+            "expand",
+            "--lbuffer",
+            "g",
+            "--rbuffer",
+            "",
+            "--cache",
+            cache_path.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("candidates\n"))
+        .stdout(predicate::str::contains("3\n"))
+        .stdout(predicate::str::contains("gc\tgit commit"))
+        .stdout(predicate::str::contains("gp\tgit push"))
+        .stdout(predicate::str::contains("gd\tgit diff"));
+}
+
+#[test]
+fn test_expand_exact_match_over_prefix() {
+    let dir = TempDir::new().unwrap();
+    let (config_path, cache_path) = setup_compiled(
+        &dir,
+        r#"
+[[abbr]]
+keyword = "g"
+expansion = "git"
+
+[[abbr]]
+keyword = "gc"
+expansion = "git commit"
+
+[[abbr]]
+keyword = "gp"
+expansion = "git push"
+"#,
+    );
+
+    // "g" has exact match → should return success, not candidates
+    kort_cmd()
+        .args([
+            "expand",
+            "--lbuffer",
+            "g",
+            "--rbuffer",
+            "",
+            "--cache",
+            cache_path.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("success\n"))
+        .stdout(predicate::str::contains("git"));
+}

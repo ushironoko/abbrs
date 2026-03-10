@@ -209,6 +209,14 @@ enum Commands {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+
+    /// List keywords for shell completion (internal use)
+    #[command(hide = true, name = "_list-keywords")]
+    ListKeywords {
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -317,6 +325,7 @@ fn main() -> Result<()> {
         } => cmd_remind(buffer, cache_path),
         Commands::Import { source } => cmd_import(source),
         Commands::Export { config: cfg } => cmd_export(cfg),
+        Commands::ListKeywords { config: cfg } => cmd_list_keywords(cfg),
     }
 }
 
@@ -683,6 +692,17 @@ fn cmd_import(source: ImportSource) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn cmd_list_keywords(cfg: Option<PathBuf>) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+    require_config(&config_path)?;
+
+    let config = config::load(&config_path)?;
+    for abbr in &config.abbr {
+        println!("{}:{}", abbr.keyword, abbr.expansion);
+    }
+    Ok(())
 }
 
 fn cmd_export(cfg: Option<PathBuf>) -> Result<()> {

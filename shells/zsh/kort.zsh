@@ -54,6 +54,18 @@ kort-expand-space() {
         zle self-insert
       fi
       ;;
+    candidates)
+      local count=$out[2]
+      local msg=""
+      local i
+      for (( i=3; i <= count + 2; i++ )); do
+        local kw="${out[$i]%%	*}"
+        local exp="${out[$i]#*	}"
+        msg+="  ${kw} → ${exp}"$'\n'
+      done
+      zle -M "$msg"
+      # Do not insert space — user continues typing to narrow down
+      ;;
     *)
       zle self-insert
       ;;
@@ -135,3 +147,54 @@ bindkey " " kort-expand-space
 bindkey "^M" kort-expand-accept
 bindkey "^I" kort-next-placeholder
 bindkey "^ " kort-literal-space
+
+# Zsh completion function
+_kort() {
+  local -a subcmds
+  subcmds=(
+    'compile:Compile config and verify conflicts'
+    'list:List registered abbreviations'
+    'check:Syntax check config only'
+    'init:Initialize kort'
+    'add:Add a new abbreviation'
+    'erase:Erase an abbreviation'
+    'rename:Rename an abbreviation'
+    'query:Query if abbreviation exists'
+    'show:Show abbreviations'
+    'import:Import abbreviations'
+    'export:Export abbreviations'
+  )
+  if (( CURRENT == 2 )); then
+    _describe 'subcommand' subcmds
+    return
+  fi
+  case $words[2] in
+    erase|show|query)
+      if (( CURRENT == 3 )); then
+        local -a keywords
+        keywords=( ${(f)"$(kort _list-keywords 2>/dev/null)"} )
+        _describe 'keyword' keywords
+      fi
+      ;;
+    rename)
+      if (( CURRENT == 3 )); then
+        local -a keywords
+        keywords=( ${(f)"$(kort _list-keywords 2>/dev/null)"} )
+        _describe 'keyword' keywords
+      fi
+      ;;
+    init)
+      if (( CURRENT == 3 )); then
+        local -a targets=('zsh:Output zsh integration script' 'config:Generate config template')
+        _describe 'target' targets
+      fi
+      ;;
+    import)
+      if (( CURRENT == 3 )); then
+        local -a sources=('aliases:Import from zsh aliases' 'fish:Import from fish' 'git-aliases:Import from git aliases')
+        _describe 'source' sources
+      fi
+      ;;
+  esac
+}
+(( $+functions[compdef] )) && compdef _kort kort
