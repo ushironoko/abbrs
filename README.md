@@ -17,15 +17,15 @@ cargo install --path .
 1. Generate a config file:
 
 ```bash
-kort init
+kort init config
 ```
 
 This creates `~/.config/kort/kort.toml`.
 
-2. Source the zsh integration in your `.zshrc`:
+2. Add the zsh integration to your `.zshrc`:
 
 ```bash
-source /path/to/kort/shells/zsh/kort.zsh
+eval "$(kort init zsh)"
 ```
 
 3. Compile your config:
@@ -145,7 +145,6 @@ regex = true
 
 ```toml
 [settings]
-strict = false  # treat suffix conflicts as errors (default: false)
 # prefixes = ["sudo", "doas"]  # commands that preserve command position
 # remind = false  # remind when abbreviation could have been used
 ```
@@ -154,10 +153,9 @@ strict = false  # treat suffix conflicts as errors (default: false)
 
 When you run `kort compile`, kort scans your `$PATH` and checks zsh builtins to detect abbreviations that shadow existing commands.
 
-| Conflict Type | Default Behavior |
+| Conflict Type | Behavior |
 |---|---|
 | Exact match with a command in `$PATH` | Error |
-| Suffix match (e.g. `cc` matches `gcc`) | Warning (Error with `--strict`) |
 | zsh builtin (e.g. `cd`, `echo`) | Error |
 
 To allow a specific conflict:
@@ -220,7 +218,8 @@ You will be prompted for the keyword, expansion, type (regular / global / contex
 
 | Command | Description |
 |---|---|
-| `kort init` | Generate a config template at `~/.config/kort/kort.toml` |
+| `kort init config` | Generate a config template at `~/.config/kort/kort.toml` |
+| `kort init zsh` | Output zsh integration script (usage: `eval "$(kort init zsh)"`) |
 | `kort add` | Add an abbreviation interactively |
 | `kort add <keyword> <expansion>` | Add an abbreviation with options |
 | `kort erase <keyword>` | Erase an abbreviation from config |
@@ -228,7 +227,6 @@ You will be prompted for the keyword, expansion, type (regular / global / contex
 | `kort query <keyword>` | Check if an abbreviation exists (exit code 0 = found) |
 | `kort show [keyword]` | Show abbreviations in re-importable `kort add` format |
 | `kort compile` | Validate config, detect conflicts, and generate binary cache |
-| `kort compile --strict` | Treat suffix conflicts as errors |
 | `kort check` | Validate config syntax without compiling |
 | `kort list` | Show all registered abbreviations |
 | `kort import aliases` | Import from zsh aliases (stdin) |
