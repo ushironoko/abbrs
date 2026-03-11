@@ -239,7 +239,14 @@ fn test_init_zsh_outputs_shell_script() {
         .success()
         .stdout(predicate::str::contains("kort-expand-space"))
         .stdout(predicate::str::contains("zle -N"))
-        .stdout(predicate::str::contains("bindkey"));
+        .stdout(predicate::str::contains("bindkey"))
+        // Candidate cycling: hook widget and add-zle-hook-widget registration
+        .stdout(predicate::str::contains("_kort_check_cycling"))
+        .stdout(predicate::str::contains("zle -N _kort_check_cycling"))
+        .stdout(predicate::str::contains("add-zle-hook-widget line-pre-redraw _kort_check_cycling"))
+        // Candidate cycling widgets
+        .stdout(predicate::str::contains("kort-next-placeholder"))
+        .stdout(predicate::str::contains("kort-literal-space"));
 }
 
 #[test]

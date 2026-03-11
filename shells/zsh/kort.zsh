@@ -345,8 +345,8 @@ bindkey "^M" kort-expand-accept
 bindkey "^I" kort-next-placeholder
 bindkey "^ " kort-literal-space
 
-# Cancel candidate cycling on any non-kort keypress (chains with existing hooks)
-_kort_line_pre_redraw() {
+# Cancel candidate cycling on any non-kort keypress
+_kort_check_cycling() {
   if (( _KORT_CYCLING )); then
     case "$LASTWIDGET" in
       kort-expand-space|kort-expand-accept|kort-next-placeholder|kort-literal-space)
@@ -358,17 +358,14 @@ _kort_line_pre_redraw() {
         ;;
     esac
   fi
-  # Chain to previous handler if it existed
-  if (( $+widgets[_kort_orig_line_pre_redraw] )); then
-    zle _kort_orig_line_pre_redraw
-  fi
 }
-# Save existing handler before overriding (guard against re-sourcing)
-if [[ ${widgets[zle-line-pre-redraw]:-} != *_kort_line_pre_redraw* ]]; then
-  if (( $+widgets[zle-line-pre-redraw] )); then
-    zle -A zle-line-pre-redraw _kort_orig_line_pre_redraw
-  fi
-  zle -N zle-line-pre-redraw _kort_line_pre_redraw
+zle -N _kort_check_cycling
+# Use add-zle-hook-widget to properly chain with existing line-pre-redraw hooks
+if (( $+functions[add-zle-hook-widget] )); then
+  add-zle-hook-widget line-pre-redraw _kort_check_cycling
+else
+  # Fallback: register directly (won't chain with other hooks)
+  zle -N zle-line-pre-redraw _kort_check_cycling
 fi
 
 # Start coproc on load

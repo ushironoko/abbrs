@@ -230,10 +230,10 @@ The zsh integration sets up the following key bindings:
 
 | Key | Action |
 |---|---|
-| Space | Expand abbreviation, then insert space |
-| Enter | Expand abbreviation, then execute |
-| Tab | Jump to next `{{placeholder}}` (falls back to normal completion) |
-| Ctrl+Space | Insert a literal space (no expansion) |
+| Space | Expand abbreviation, then insert space. While prefix candidates are shown, confirm current selection and expand |
+| Enter | Expand abbreviation, then execute. While prefix candidates are shown, confirm current selection and execute |
+| Tab | Cycle through prefix candidates when shown; otherwise jump to next `{{placeholder}}` (falls back to normal completion) |
+| Ctrl+Space | Insert a literal space (no expansion). While prefix candidates are shown, cancel and restore original input |
 | accept-line | Check for abbreviation reminders (when `remind = true`) |
 
 ## Prefix Candidates
