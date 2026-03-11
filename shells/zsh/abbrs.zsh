@@ -2,6 +2,14 @@
 # Source this file in your .zshrc:
 #   source /path/to/abbrs.zsh
 
+# --- Binary path (replaced by `abbrs init zsh`) ---
+
+typeset -g _ABBRS_BIN="__ABBRS_BIN__"
+# Fallback: if placeholder was not replaced (e.g. sourced directly), find abbrs in PATH
+if [[ $_ABBRS_BIN == "__ABBRS_BIN__" ]]; then
+  _ABBRS_BIN="${commands[abbrs]:-abbrs}"
+fi
+
 # --- Coproc management ---
 
 typeset -g _ABBRS_COPROC_PID=0
@@ -18,12 +26,14 @@ typeset -g  _ABBRS_CYCLE_ORIG_TOKEN=""
 # Note: zsh coproc is a singleton — only one coproc per shell.
 # If another plugin uses coproc, it will conflict with abbrs.
 _abbrs_start_coproc() {
+  setopt local_options no_monitor no_notify
   _abbrs_stop_coproc
-  coproc abbrs serve 2>/dev/null
+  coproc $_ABBRS_BIN serve 2>/dev/null
   _ABBRS_COPROC_PID=$!
 }
 
 _abbrs_stop_coproc() {
+  setopt local_options no_monitor no_notify
   if (( _ABBRS_COPROC_PID > 0 )); then
     kill $_ABBRS_COPROC_PID 2>/dev/null
     wait $_ABBRS_COPROC_PID 2>/dev/null
@@ -72,22 +82,22 @@ _abbrs_request() {
 
 _abbrs_expand_fallback() {
   local -a out
-  out=( "${(f)$(abbrs expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
+  out=( "${(f)$($_ABBRS_BIN expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
 
   if [[ $out[1] == stale_cache ]]; then
-    abbrs compile 2>/dev/null
-    out=( "${(f)$(abbrs expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
+    $_ABBRS_BIN compile 2>/dev/null
+    out=( "${(f)$($_ABBRS_BIN expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
   fi
 
   echo "${(F)out}"
 }
 
 _abbrs_placeholder_fallback() {
-  abbrs next-placeholder --lbuffer="$LBUFFER" --rbuffer="$RBUFFER"
+  $_ABBRS_BIN next-placeholder --lbuffer="$LBUFFER" --rbuffer="$RBUFFER"
 }
 
 _abbrs_remind_fallback() {
-  abbrs remind --buffer="$1" 2>/dev/null
+  $_ABBRS_BIN remind --buffer="$1" 2>/dev/null
 }
 
 # --- Candidate cycling helpers ---
@@ -112,7 +122,15 @@ _abbrs_clear_candidates() {
 
 _abbrs_cycle_next() {
   (( _ABBRS_CYCLE_INDEX = (_ABBRS_CYCLE_INDEX % $#_ABBRS_CANDIDATES) + 1 ))
+  _abbrs_apply_cycle
+}
 
+_abbrs_cycle_prev() {
+  (( _ABBRS_CYCLE_INDEX = (_ABBRS_CYCLE_INDEX - 2 + $#_ABBRS_CANDIDATES) % $#_ABBRS_CANDIDATES + 1 ))
+  _abbrs_apply_cycle
+}
+
+_abbrs_apply_cycle() {
   local selected="${_ABBRS_CANDIDATES[$_ABBRS_CYCLE_INDEX]}"
   local kw="${selected%%	*}"
 
@@ -127,7 +145,7 @@ _abbrs_cycle_next() {
       msg+=$'\n'
     fi
     if (( i == _ABBRS_CYCLE_INDEX )); then
-      msg+=$'\x1b[7m'" ${ckw} → ${cexp} "$'\x1b[0m'
+      msg+="▸ ${ckw} → ${cexp}"
     else
       msg+="  ${ckw} → ${cexp}"
     fi
@@ -248,7 +266,7 @@ _abbrs_expand_with_fallback() {
 
   if _abbrs_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
     if [[ ${_abbrs_reply[1]} == stale_cache ]]; then
-      abbrs compile 2>/dev/null
+      $_ABBRS_BIN compile 2>/dev/null
       _abbrs_request "reload"
       if _abbrs_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
         "$handler" "${_abbrs_reply[@]}"
@@ -279,6 +297,8 @@ abbrs-expand-space() {
 abbrs-expand-accept() {
   if (( _ABBRS_CYCLING )); then
     _abbrs_clear_candidates
+    _abbrs_expand_with_fallback _abbrs_handle_expand_accept_response
+    return
   fi
   _abbrs_expand_with_fallback _abbrs_handle_expand_accept_response
 
@@ -293,6 +313,10 @@ abbrs-expand-accept() {
     if [[ -n $remind_msg ]]; then
       zle -M "$remind_msg"
     fi
+  fi
+
+  if [[ "$BUFFER" == exit || "$BUFFER" == logout ]]; then
+    _abbrs_stop_coproc
   fi
 
   zle accept-line
@@ -327,6 +351,13 @@ abbrs-next-placeholder() {
   zle expand-or-complete
 }
 
+# Reverse cycle candidates on Shift+Tab
+abbrs-prev-candidate() {
+  if (( _ABBRS_CYCLING )); then
+    _abbrs_cycle_prev
+  fi
+}
+
 # Literal space (no expansion)
 abbrs-literal-space() {
   _abbrs_clear_candidates 1
@@ -337,19 +368,21 @@ abbrs-literal-space() {
 zle -N abbrs-expand-space
 zle -N abbrs-expand-accept
 zle -N abbrs-next-placeholder
+zle -N abbrs-prev-candidate
 zle -N abbrs-literal-space
 
 # Key bindings
 bindkey " " abbrs-expand-space
 bindkey "^M" abbrs-expand-accept
 bindkey "^I" abbrs-next-placeholder
+bindkey "^[[Z" abbrs-prev-candidate
 bindkey "^ " abbrs-literal-space
 
 # Cancel candidate cycling on any non-abbrs keypress
 _abbrs_check_cycling() {
   if (( _ABBRS_CYCLING )); then
     case "$LASTWIDGET" in
-      abbrs-expand-space|abbrs-expand-accept|abbrs-next-placeholder|abbrs-literal-space)
+      abbrs-expand-space|abbrs-expand-accept|abbrs-next-placeholder|abbrs-prev-candidate|abbrs-literal-space)
         ;;
       *)
         # Accept current candidate (don't restore) so the user's keystroke is preserved.
@@ -409,7 +442,7 @@ _abbrs() {
         break
       fi
     done
-    keywords=( ${(f)"$(abbrs _list-keywords "${cfg_flag[@]}" 2>/dev/null)"} )
+    keywords=( ${(f)"$($_ABBRS_BIN _list-keywords "${cfg_flag[@]}" 2>/dev/null)"} )
     _describe 'keyword' keywords
   }
 

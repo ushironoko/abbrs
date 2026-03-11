@@ -749,7 +749,12 @@ fn cmd_init(target: InitTarget) -> Result<()> {
 }
 
 fn cmd_init_zsh() -> Result<()> {
-    print!("{}", include_str!("../shells/zsh/abbrs.zsh"));
+    let bin_path = std::env::current_exe()
+        .unwrap_or_else(|_| std::path::PathBuf::from("abbrs"))
+        .to_string_lossy()
+        .into_owned();
+    let script = include_str!("../shells/zsh/abbrs.zsh").replace("__ABBRS_BIN__", &bin_path);
+    print!("{}", script);
     Ok(())
 }
 
