@@ -175,7 +175,7 @@ pub fn expand(
         in_command_position,
         current_command.as_deref(),
     );
-    if candidates.len() >= 2 {
+    if candidates.len() >= 1 {
         return ExpandOutput::Candidates {
             candidates: candidates
                 .iter()
@@ -683,7 +683,7 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_prefix_single_candidate_returns_no_match() {
+    fn test_expand_prefix_single_candidate_returns_candidates() {
         let abbrs = vec![Abbreviation {
             keyword: "gc".to_string(),
             expansion: "git commit".to_string(),
@@ -696,7 +696,11 @@ mod tests {
             rbuffer: "".to_string(),
         };
         let result = expand(&input, &matcher, &no_prefixes(), &rc);
-        assert_snapshot!(result.to_string(), @"no_match");
+        assert_snapshot!(result.to_string(), @r"
+        candidates
+        1
+        gc	git commit
+        ");
     }
 
     #[test]

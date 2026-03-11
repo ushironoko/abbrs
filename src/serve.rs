@@ -719,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_expand_prefix_candidates_single_returns_no_match() {
+    fn test_handle_expand_prefix_candidates_single_returns_candidates() {
         let abbrs = vec![
             Abbreviation {
                 keyword: "gc".to_string(),
@@ -730,7 +730,11 @@ mod tests {
         let (mut state, _dir) = create_test_state(&abbrs, CachedSettings::default());
         let mut buf = Vec::new();
         handle_expand(&mut state, "g", "", &mut buf).unwrap();
-        assert_snapshot!(response_body(&buf), @"no_match");
+        assert_snapshot!(response_body(&buf), @r"
+        candidates
+        1
+        gc	git commit
+        ");
     }
 
     #[test]
