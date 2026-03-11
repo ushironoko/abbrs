@@ -1,5 +1,5 @@
-# kort configuration example
-# Place this file at: ~/.config/kort/kort.toml
+# abbrs configuration example
+# Place this file at: ~/.config/abbrs/abbrs.toml
 
 [settings]
 

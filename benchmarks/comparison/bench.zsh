@@ -1,9 +1,9 @@
 #!/usr/bin/env zsh
 # =============================================================================
-# kort vs zsh-abbr comparison benchmark
+# abbrs vs zsh-abbr comparison benchmark
 # =============================================================================
 # Measures end-to-end expansion latency as experienced by the user:
-#   - kort:     fork+exec `kort expand` → cache read → HashMap lookup → stdout
+#   - abbrs:    fork+exec `abbrs expand` → cache read → HashMap lookup → stdout
 #   - zsh-abbr: in-process function call → associative array lookup
 #   - raw zsh:  direct associative array access (theoretical lower bound)
 # =============================================================================
@@ -16,7 +16,7 @@ set -u
 # ---------------------------------------------------------------------------
 SCRIPT_DIR=${0:a:h}
 PROJECT_ROOT=${SCRIPT_DIR:h:h}
-KORT_BIN=${PROJECT_ROOT}/target/release/kort
+ABBRS_BIN=${PROJECT_ROOT}/target/release/abbrs
 BENCH_TMPDIR=$(mktemp -d)
 ITERATIONS=${1:-1000}
 SIZES=(10 50 100 500)
@@ -53,13 +53,13 @@ print_row_compare() {
 }
 
 # ---------------------------------------------------------------------------
-# Build kort
+# Build abbrs
 # ---------------------------------------------------------------------------
-if [[ ! -x $KORT_BIN ]]; then
-  echo "Building kort (release)..."
+if [[ ! -x $ABBRS_BIN ]]; then
+  echo "Building abbrs (release)..."
   (cd $PROJECT_ROOT && cargo build --release 2>&1)
 fi
-echo "kort binary: $KORT_BIN"
+echo "abbrs binary: $ABBRS_BIN"
 echo "Iterations per measurement: $ITERATIONS"
 
 # ---------------------------------------------------------------------------
@@ -71,13 +71,13 @@ ABBR_GET_AVAILABLE_ABBREVIATION=0
 source /opt/homebrew/share/zsh-abbr/zsh-abbr.zsh 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# Warmup kort binary (page cache)
+# Warmup abbrs binary (page cache)
 # ---------------------------------------------------------------------------
-warmup_kort() {
+warmup_abbrs() {
   local cache_path=$1
   local config_path=$2
   for _w in {1..5}; do
-    $KORT_BIN expand --lbuffer "warmup" --rbuffer "" --cache "$cache_path" --config "$config_path" >/dev/null 2>&1 || true
+    $ABBRS_BIN expand --lbuffer "warmup" --rbuffer "" --cache "$cache_path" --config "$config_path" >/dev/null 2>&1 || true
   done
 }
 
@@ -86,16 +86,16 @@ warmup_kort() {
 # =============================================================================
 printf '\n'
 printf '╔══════════════════════════════════════════════════════════════════════╗\n'
-printf '║           kort vs zsh-abbr  Expansion Benchmark                    ║\n'
+printf '║           abbrs vs zsh-abbr  Expansion Benchmark                    ║\n'
 printf '╚══════════════════════════════════════════════════════════════════════╝\n'
 
 # Collect results for summary table
-typeset -A results_kort results_kort_serve results_abbr results_raw
+typeset -A results_abbrs results_abbrs_serve results_abbr results_raw
 
 # Pre-declare loop variables to avoid zsh typeset output on re-declaration
 local bench_start bench_end
-local target_keyword kort_dir kort_config kort_cache
-local kort_total kort_serve_total abbr_total raw_total quoted_target
+local target_keyword abbrs_dir abbrs_config abbrs_cache
+local abbrs_total abbrs_serve_total abbr_total raw_total quoted_target
 local serve_in serve_out serve_pid serve_fd_w serve_fd_r _sline
 
 for SIZE in $SIZES; do
@@ -104,14 +104,14 @@ for SIZE in $SIZES; do
   target_keyword="abbr$((SIZE / 2))"
 
   # =========================================================================
-  # Setup: kort
+  # Setup: abbrs
   # =========================================================================
-  kort_dir="${BENCH_TMPDIR}/kort_${SIZE}"
-  mkdir -p "${kort_dir}/config" "${kort_dir}/cache/kort"
-  kort_config="${kort_dir}/config/kort.toml"
-  kort_cache="${kort_dir}/cache/kort/kort.cache"
+  abbrs_dir="${BENCH_TMPDIR}/abbrs_${SIZE}"
+  mkdir -p "${abbrs_dir}/config" "${abbrs_dir}/cache/abbrs"
+  abbrs_config="${abbrs_dir}/config/abbrs.toml"
+  abbrs_cache="${abbrs_dir}/cache/abbrs/abbrs.cache"
 
-  # Generate kort.toml
+  # Generate abbrs.toml
   {
     echo '[settings]'
     echo ''
@@ -121,21 +121,21 @@ for SIZE in $SIZES; do
       echo "expansion = \"expanded command ${i} with some arguments\""
       echo ""
     done
-  } > "$kort_config"
+  } > "$abbrs_config"
 
   # Compile (set XDG paths so cache goes where we want)
-  XDG_CONFIG_HOME="${kort_dir}/config" XDG_CACHE_HOME="${kort_dir}/cache" \
-    $KORT_BIN compile --config "$kort_config" 2>/dev/null
+  XDG_CONFIG_HOME="${abbrs_dir}/config" XDG_CACHE_HOME="${abbrs_dir}/cache" \
+    $ABBRS_BIN compile --config "$abbrs_config" 2>/dev/null
 
   # Verify cache exists
-  if [[ ! -f "$kort_cache" ]]; then
-    echo "ERROR: kort cache not created at $kort_cache"
-    ls -la "${kort_dir}/cache/" 2>&1
+  if [[ ! -f "$abbrs_cache" ]]; then
+    echo "ERROR: abbrs cache not created at $abbrs_cache"
+    ls -la "${abbrs_dir}/cache/" 2>&1
     continue
   fi
 
   # Warmup
-  warmup_kort "$kort_cache" "$kort_config"
+  warmup_abbrs "$abbrs_cache" "$abbrs_config"
 
   # =========================================================================
   # Setup: zsh-abbr (session abbreviations for fast path)
@@ -149,26 +149,26 @@ for SIZE in $SIZES; do
   done
 
   # =========================================================================
-  # Benchmark 1: kort expand (external process)
+  # Benchmark 1: abbrs expand (external process)
   # =========================================================================
   bench_start=$EPOCHREALTIME
   for _iter in $(seq 1 $ITERATIONS); do
-    $KORT_BIN expand --lbuffer "$target_keyword" --rbuffer "" --cache "$kort_cache" --config "$kort_config" >/dev/null
+    $ABBRS_BIN expand --lbuffer "$target_keyword" --rbuffer "" --cache "$abbrs_cache" --config "$abbrs_config" >/dev/null
   done
   bench_end=$EPOCHREALTIME
-  kort_total=$(( bench_end - bench_start ))
-  results_kort[$SIZE]=$kort_total
+  abbrs_total=$(( bench_end - bench_start ))
+  results_abbrs[$SIZE]=$abbrs_total
 
-  print_row "kort expand" $kort_total $ITERATIONS
+  print_row "abbrs expand" $abbrs_total $ITERATIONS
 
   # =========================================================================
-  # Benchmark 1b: kort serve (coproc pipe communication)
+  # Benchmark 1b: abbrs serve (coproc pipe communication)
   # =========================================================================
   # Start serve process
-  serve_in="${kort_dir}/serve_in"
-  serve_out="${kort_dir}/serve_out"
+  serve_in="${abbrs_dir}/serve_in"
+  serve_out="${abbrs_dir}/serve_out"
   mkfifo "$serve_in" "$serve_out" 2>/dev/null || true
-  $KORT_BIN serve --cache "$kort_cache" --config "$kort_config" < "$serve_in" > "$serve_out" 2>/dev/null &
+  $ABBRS_BIN serve --cache "$abbrs_cache" --config "$abbrs_config" < "$serve_in" > "$serve_out" 2>/dev/null &
   serve_pid=$!
   exec {serve_fd_w}>"$serve_in"
   exec {serve_fd_r}<"$serve_out"
@@ -189,8 +189,8 @@ for SIZE in $SIZES; do
     done
   done
   bench_end=$EPOCHREALTIME
-  kort_serve_total=$(( bench_end - bench_start ))
-  results_kort_serve[$SIZE]=$kort_serve_total
+  abbrs_serve_total=$(( bench_end - bench_start ))
+  results_abbrs_serve[$SIZE]=$abbrs_serve_total
 
   # Cleanup serve process
   exec {serve_fd_w}>&-
@@ -198,7 +198,7 @@ for SIZE in $SIZES; do
   wait $serve_pid 2>/dev/null
   rm -f "$serve_in" "$serve_out"
 
-  print_row_compare "kort serve (coproc)" $kort_serve_total $ITERATIONS $kort_total
+  print_row_compare "abbrs serve (coproc)" $abbrs_serve_total $ITERATIONS $abbrs_total
 
   # =========================================================================
   # Benchmark 2: zsh-abbr expand-line (full function path)
@@ -212,7 +212,7 @@ for SIZE in $SIZES; do
   abbr_total=$(( bench_end - bench_start ))
   results_abbr[$SIZE]=$abbr_total
 
-  print_row_compare "zsh-abbr expand-line" $abbr_total $ITERATIONS $kort_total
+  print_row_compare "zsh-abbr expand-line" $abbr_total $ITERATIONS $abbrs_total
 
   # =========================================================================
   # Benchmark 3: raw zsh associative array lookup (lower bound)
@@ -226,7 +226,7 @@ for SIZE in $SIZES; do
   raw_total=$(( bench_end - bench_start ))
   results_raw[$SIZE]=$raw_total
 
-  print_row_compare "raw zsh hash lookup" $raw_total $ITERATIONS $kort_total
+  print_row_compare "raw zsh hash lookup" $raw_total $ITERATIONS $abbrs_total
 done
 
 # =============================================================================
@@ -234,17 +234,17 @@ done
 # =============================================================================
 print_header "Summary (µs/op)"
 
-printf '  %-12s %12s %18s %18s %18s\n' "Abbr Count" "kort" "kort serve" "zsh-abbr" "raw zsh lookup"
+printf '  %-12s %12s %18s %18s %18s\n' "Abbr Count" "abbrs" "abbrs serve" "zsh-abbr" "raw zsh lookup"
 printf '  %-12s %12s %18s %18s %18s\n' "──────────" "──────────" "────────────────" "────────────────" "────────────────"
 
 for SIZE in $SIZES; do
-  local k_us=$(( ${results_kort[$SIZE]} / $ITERATIONS * 1000000 ))
-  local ks_us=$(( ${results_kort_serve[$SIZE]} / $ITERATIONS * 1000000 ))
+  local k_us=$(( ${results_abbrs[$SIZE]} / $ITERATIONS * 1000000 ))
+  local ks_us=$(( ${results_abbrs_serve[$SIZE]} / $ITERATIONS * 1000000 ))
   local a_us=$(( ${results_abbr[$SIZE]} / $ITERATIONS * 1000000 ))
   local r_us=$(( ${results_raw[$SIZE]} / $ITERATIONS * 1000000 ))
-  local ks_ratio=$(( ${results_kort_serve[$SIZE]} / ${results_kort[$SIZE]} ))
-  local a_ratio=$(( ${results_abbr[$SIZE]} / ${results_kort[$SIZE]} ))
-  local r_ratio=$(( ${results_raw[$SIZE]} / ${results_kort[$SIZE]} ))
+  local ks_ratio=$(( ${results_abbrs_serve[$SIZE]} / ${results_abbrs[$SIZE]} ))
+  local a_ratio=$(( ${results_abbr[$SIZE]} / ${results_abbrs[$SIZE]} ))
+  local r_ratio=$(( ${results_raw[$SIZE]} / ${results_abbrs[$SIZE]} ))
   printf '  %-12d %9.1f µs %11.1f µs (%.2fx) %11.1f µs (%.2fx) %11.1f µs (%.2fx)\n' \
     $SIZE $k_us $ks_us $ks_ratio $a_us $a_ratio $r_us $r_ratio
 done
@@ -253,25 +253,25 @@ done
 # Additional: hyperfine comparison (if available)
 # =============================================================================
 if command -v hyperfine >/dev/null 2>&1; then
-  print_header "hyperfine: kort expand (500 abbreviations, precise measurement)"
+  print_header "hyperfine: abbrs expand (500 abbreviations, precise measurement)"
 
-  local kort_dir_500="${BENCH_TMPDIR}/kort_500"
-  local kort_config_500="${kort_dir_500}/config/kort.toml"
-  local kort_cache_500="${kort_dir_500}/cache/kort/kort.cache"
+  local abbrs_dir_500="${BENCH_TMPDIR}/abbrs_500"
+  local abbrs_config_500="${abbrs_dir_500}/config/abbrs.toml"
+  local abbrs_cache_500="${abbrs_dir_500}/cache/abbrs/abbrs.cache"
 
   hyperfine \
     --warmup 100 \
     --min-runs 500 \
     --shell=none \
-    -n "kort expand (500 abbrs)" \
-    "$KORT_BIN expand --lbuffer abbr250 --rbuffer '' --cache $kort_cache_500 --config $kort_config_500" \
+    -n "abbrs expand (500 abbrs)" \
+    "$ABBRS_BIN expand --lbuffer abbr250 --rbuffer '' --cache $abbrs_cache_500 --config $abbrs_config_500" \
     2>&1
 
-  print_header "hyperfine: kort expand vs zsh startup+lookup (100 abbreviations)"
+  print_header "hyperfine: abbrs expand vs zsh startup+lookup (100 abbreviations)"
 
-  local kort_dir_100="${BENCH_TMPDIR}/kort_100"
-  local kort_config_100="${kort_dir_100}/config/kort.toml"
-  local kort_cache_100="${kort_dir_100}/cache/kort/kort.cache"
+  local abbrs_dir_100="${BENCH_TMPDIR}/abbrs_100"
+  local abbrs_config_100="${abbrs_dir_100}/config/abbrs.toml"
+  local abbrs_cache_100="${abbrs_dir_100}/cache/abbrs/abbrs.cache"
 
   # Create a self-contained zsh script for zsh-abbr benchmarking
   local abbr_bench_script="${BENCH_TMPDIR}/abbr_bench.zsh"
@@ -289,8 +289,8 @@ if command -v hyperfine >/dev/null 2>&1; then
   hyperfine \
     --warmup 20 \
     --min-runs 200 \
-    -n "kort expand (100 abbrs)" \
-    "$KORT_BIN expand --lbuffer abbr50 --rbuffer '' --cache $kort_cache_100 --config $kort_config_100" \
+    -n "abbrs expand (100 abbrs)" \
+    "$ABBRS_BIN expand --lbuffer abbr50 --rbuffer '' --cache $abbrs_cache_100 --config $abbrs_config_100" \
     -n "zsh: raw hash lookup (100 abbrs, includes zsh startup)" \
     "zsh $abbr_bench_script" \
     2>&1

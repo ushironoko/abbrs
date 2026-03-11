@@ -1,6 +1,6 @@
-use kort::cache;
-use kort::config;
-use kort::matcher;
+use abbrs::cache;
+use abbrs::config;
+use abbrs::matcher;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use tempfile::TempDir;
 
@@ -34,12 +34,12 @@ fn bench_cache_read(c: &mut Criterion) {
     for size in [10, 100, 500] {
         let dir = TempDir::new().unwrap();
         let toml = generate_toml(size);
-        let config_path = dir.path().join("kort.toml");
+        let config_path = dir.path().join("abbrs.toml");
         std::fs::write(&config_path, &toml).unwrap();
 
         let cfg = config::parse(&toml).unwrap();
         let m = matcher::build(&cfg.abbr);
-        let cache_path = dir.path().join("kort.cache");
+        let cache_path = dir.path().join("abbrs.cache");
         let settings = cache::CachedSettings::default();
         cache::write(&cache_path, &m, &settings, &config_path).unwrap();
 

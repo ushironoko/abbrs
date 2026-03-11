@@ -3,6 +3,28 @@
 version = 4
 
 [[package]]
+name = "abbrs"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "bitcode",
+ "clap",
+ "criterion",
+ "crossterm",
+ "insta",
+ "predicates",
+ "proptest",
+ "regex",
+ "rustc-hash",
+ "serde",
+ "tempfile",
+ "toml",
+ "toml_edit 0.22.27",
+ "xdg",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -560,28 +582,6 @@ checksum = "b49715b7073f385ba4bc528e5747d02e66cb39c6146efb66b781f131f0fb399c"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "kort"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "bitcode",
- "clap",
- "criterion",
- "crossterm",
- "insta",
- "predicates",
- "proptest",
- "regex",
- "rustc-hash",
- "serde",
- "tempfile",
- "toml",
- "toml_edit 0.22.27",
- "xdg",
 ]
 
 [[package]]

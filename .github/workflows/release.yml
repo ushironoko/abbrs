@@ -22,7 +22,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  BINARY_NAME: kort
+  BINARY_NAME: abbrs
 
 jobs:
   validate:
@@ -122,7 +122,7 @@ jobs:
             use_cross: false
     runs-on: ${{ matrix.runner }}
     env:
-      ARCHIVE_NAME: kort-${{ inputs.version }}-${{ matrix.target }}
+      ARCHIVE_NAME: abbrs-${{ inputs.version }}-${{ matrix.target }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:

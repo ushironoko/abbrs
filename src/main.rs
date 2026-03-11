@@ -2,10 +2,10 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use kort::{add, cache, compiler, config, context, expand, import, manage, output, placeholder, serve};
+use abbrs::{add, cache, compiler, config, context, expand, import, manage, output, placeholder, serve};
 
 #[derive(Parser, Debug)]
-#[command(name = "kort")]
+#[command(name = "abbrs")]
 #[command(about = "Fast and safe abbreviation expansion for zsh")]
 #[command(version)]
 struct Args {
@@ -66,7 +66,7 @@ enum Commands {
         config: Option<PathBuf>,
     },
 
-    /// Initialize kort (shell integration or config)
+    /// Initialize abbrs (shell integration or config)
     Init {
         #[command(subcommand)]
         target: InitTarget,
@@ -203,7 +203,7 @@ enum Commands {
         source: ImportSource,
     },
 
-    /// Export abbreviations in `kort add` format
+    /// Export abbreviations in `abbrs add` format
     Export {
         /// Config file path
         #[arg(long)]
@@ -232,7 +232,7 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum InitTarget {
-    /// Output zsh integration script (usage: eval "$(kort init zsh)")
+    /// Output zsh integration script (usage: eval "$(abbrs init zsh)")
     Zsh,
     /// Generate config file template
     Config,
@@ -537,11 +537,11 @@ fn cmd_add(
             context_rbuffer,
         },
         (None, None) => {
-            eprintln!("kort add - interactive mode\n");
+            eprintln!("abbrs add - interactive mode\n");
             add::interactive_prompt()?
         }
         _ => {
-            anyhow::bail!("both KEYWORD and EXPANSION are required for non-interactive mode\nusage: kort add <KEYWORD> <EXPANSION> [OPTIONS]\n       kort add  (interactive mode)");
+            anyhow::bail!("both KEYWORD and EXPANSION are required for non-interactive mode\nusage: abbrs add <KEYWORD> <EXPANSION> [OPTIONS]\n       abbrs add  (interactive mode)");
         }
     };
 
@@ -565,7 +565,7 @@ fn cmd_remind(buffer: String, cache_path: Option<PathBuf>) -> Result<()> {
 
     if let Some((keyword, expansion)) = expand::check_remind(&buffer, &compiled.matcher) {
         // Output reminder to stderr (shown via zle -M in widget)
-        println!("kort: you could have used \"{}\" instead of \"{}\"", keyword, expansion);
+        println!("abbrs: you could have used \"{}\" instead of \"{}\"", keyword, expansion);
     }
 
     Ok(())
@@ -734,7 +734,7 @@ fn cmd_export(cfg: Option<PathBuf>) -> Result<()> {
 fn require_config(config_path: &std::path::Path) -> Result<()> {
     if !config_path.exists() {
         anyhow::bail!(
-            "config file not found: {}\nrun `kort init config` to generate a template",
+            "config file not found: {}\nrun `abbrs init config` to generate a template",
             config_path.display()
         );
     }
@@ -749,7 +749,7 @@ fn cmd_init(target: InitTarget) -> Result<()> {
 }
 
 fn cmd_init_zsh() -> Result<()> {
-    print!("{}", include_str!("../shells/zsh/kort.zsh"));
+    print!("{}", include_str!("../shells/zsh/abbrs.zsh"));
     Ok(())
 }
 
@@ -768,8 +768,8 @@ fn cmd_init_config() -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
 
-    let template = r#"# kort - abbreviation configuration
-# See: https://github.com/ushironoko/kort
+    let template = r#"# abbrs - abbreviation configuration
+# See: https://github.com/ushironoko/abbrs
 
 [settings]
 # prefixes = ["sudo", "doas"]  # commands that preserve command position

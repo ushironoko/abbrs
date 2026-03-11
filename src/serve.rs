@@ -194,7 +194,7 @@ fn handle_remind<W: Write>(state: &ServeState, buffer: &str, writer: &mut W) -> 
 
     if let Some((keyword, expansion)) = expand::check_remind(buffer, &compiled.matcher) {
         let msg = format!(
-            "kort: you could have used \"{}\" instead of \"{}\"",
+            "abbrs: you could have used \"{}\" instead of \"{}\"",
             keyword, expansion
         );
         write_response(writer, &msg)
@@ -238,7 +238,7 @@ pub fn run(cache_path: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
                 if e.kind() == std::io::ErrorKind::UnexpectedEof {
                     break;
                 }
-                eprintln!("kort serve: read error: {}", e);
+                eprintln!("abbrs serve: read error: {}", e);
                 continue;
             }
         };
@@ -258,7 +258,7 @@ pub fn run(cache_path: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
                     if write_err.kind() == std::io::ErrorKind::BrokenPipe {
                         break;
                     }
-                    eprintln!("kort serve: write error: {}", write_err);
+                    eprintln!("abbrs serve: write error: {}", write_err);
                 }
                 continue;
             }
@@ -282,7 +282,7 @@ pub fn run(cache_path: Option<PathBuf>, config_path: Option<PathBuf>) -> Result<
             if e.kind() == std::io::ErrorKind::BrokenPipe {
                 break;
             }
-            eprintln!("kort serve: write error: {}", e);
+            eprintln!("abbrs serve: write error: {}", e);
         }
     }
 
@@ -301,8 +301,8 @@ mod tests {
     /// Build a ServeState with a real cache from test abbreviations.
     fn create_test_state(abbrs: &[Abbreviation], settings: CachedSettings) -> (ServeState, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().unwrap();
-        let config_path = dir.path().join("kort.toml");
-        let cache_path = dir.path().join("kort.cache");
+        let config_path = dir.path().join("abbrs.toml");
+        let cache_path = dir.path().join("abbrs.cache");
 
         // Write a minimal config (content is hashed for freshness)
         let mut toml = String::from("[settings]\n");
@@ -745,7 +745,7 @@ mod tests {
         let (state, _dir) = create_test_state(&abbrs, settings);
         let mut buf = Vec::new();
         handle_remind(&state, "git push", &mut buf).unwrap();
-        assert_snapshot!(response_body(&buf), @r#"kort: you could have used "g" instead of "git""#);
+        assert_snapshot!(response_body(&buf), @r#"abbrs: you could have used "g" instead of "git""#);
     }
 
     #[test]

@@ -71,7 +71,7 @@ pub fn read(cache_path: &Path) -> Result<CompiledCache> {
 
     if cache.version != CACHE_VERSION {
         anyhow::bail!(
-            "cache version mismatch (expected: {}, got: {}). Run `kort compile` to update.",
+            "cache version mismatch (expected: {}, got: {}). Run `abbrs compile` to update.",
             CACHE_VERSION,
             cache.version
         );
@@ -97,7 +97,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_config(dir: &TempDir) -> std::path::PathBuf {
-        let config_path = dir.path().join("kort.toml");
+        let config_path = dir.path().join("abbrs.toml");
         std::fs::write(
             &config_path,
             r#"
@@ -125,7 +125,7 @@ expansion = "git"
     fn test_write_and_read_roundtrip() {
         let dir = TempDir::new().unwrap();
         let config_path = create_test_config(&dir);
-        let cache_path = dir.path().join("kort.cache");
+        let cache_path = dir.path().join("abbrs.cache");
 
         let matcher = Matcher::new();
         let settings = CachedSettings::default();
@@ -146,7 +146,7 @@ expansion = "git"
     fn test_write_and_read_roundtrip_with_settings() {
         let dir = TempDir::new().unwrap();
         let config_path = create_test_config(&dir);
-        let cache_path = dir.path().join("kort.cache");
+        let cache_path = dir.path().join("abbrs.cache");
 
         let matcher = Matcher::new();
         let settings = CachedSettings {
@@ -164,7 +164,7 @@ expansion = "git"
     fn test_is_fresh_true() {
         let dir = TempDir::new().unwrap();
         let config_path = create_test_config(&dir);
-        let cache_path = dir.path().join("kort.cache");
+        let cache_path = dir.path().join("abbrs.cache");
 
         let matcher = Matcher::new();
         let settings = CachedSettings::default();
@@ -178,7 +178,7 @@ expansion = "git"
     fn test_is_fresh_false_after_config_change() {
         let dir = TempDir::new().unwrap();
         let config_path = create_test_config(&dir);
-        let cache_path = dir.path().join("kort.cache");
+        let cache_path = dir.path().join("abbrs.cache");
 
         let matcher = Matcher::new();
         let settings = CachedSettings::default();
@@ -201,14 +201,14 @@ expansion = "git commit"
 
     #[test]
     fn test_read_nonexistent_cache() {
-        let result = read(Path::new("/nonexistent/kort.cache"));
+        let result = read(Path::new("/nonexistent/abbrs.cache"));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_read_corrupted_cache() {
         let dir = TempDir::new().unwrap();
-        let cache_path = dir.path().join("kort.cache");
+        let cache_path = dir.path().join("abbrs.cache");
         std::fs::write(&cache_path, b"corrupted data").unwrap();
 
         let result = read(&cache_path);
@@ -219,7 +219,7 @@ expansion = "git commit"
     fn test_write_creates_parent_directories() {
         let dir = TempDir::new().unwrap();
         let config_path = create_test_config(&dir);
-        let cache_path = dir.path().join("nested").join("dir").join("kort.cache");
+        let cache_path = dir.path().join("nested").join("dir").join("abbrs.cache");
 
         let matcher = Matcher::new();
         let settings = CachedSettings::default();
@@ -235,7 +235,7 @@ expansion = "git commit"
 
         let dir = TempDir::new().unwrap();
         let config_path = create_test_config(&dir);
-        let cache_path = dir.path().join("kort.cache");
+        let cache_path = dir.path().join("abbrs.cache");
 
         let abbrs = vec![
             Abbreviation {

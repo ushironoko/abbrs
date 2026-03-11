@@ -1,14 +1,14 @@
-# kort
+# abbrs
 
 Fast and safe abbreviation expansion for zsh.
 
-kort pre-validates your abbreviations at compile time — catching conflicts with existing commands before they cause problems — then uses a binary cache for instant expansion at runtime.
+abbrs pre-validates your abbreviations at compile time — catching conflicts with existing commands before they cause problems — then uses a binary cache for instant expansion at runtime.
 
-## What's kort
+## What's abbrs
 
 Traditional zsh abbreviation tools expand keywords at runtime without checking whether they collide with real commands in your `$PATH` or zsh builtins — you only discover the conflict when something breaks. They also rely on shell-script lookups that slow down linearly as your abbreviation list grows.
 
-kort takes a different approach: **compile, then expand**. Running `kort compile` scans your PATH and builtins, rejects dangerous conflicts up front, and writes a binary cache. At expansion time, kort reads that cache for O(1) HashMap lookup — or runs as a persistent coproc (`kort serve`) for sub-100 µs latency, regardless of how many abbreviations you have.
+abbrs takes a different approach: **compile, then expand**. Running `abbrs compile` scans your PATH and builtins, rejects dangerous conflicts up front, and writes a binary cache. At expansion time, abbrs reads that cache for O(1) HashMap lookup — or runs as a persistent coproc (`abbrs serve`) for sub-100 µs latency, regardless of how many abbreviations you have.
 
 ## Features
 
@@ -26,13 +26,13 @@ kort takes a different approach: **compile, then expand**. Running `kort compile
 ### From crates.io
 
 ```bash
-cargo install kort
+cargo install abbrs
 ```
 
 ### From GitHub Releases (via mise)
 
 ```bash
-mise install github:ushironoko/kort
+mise install github:ushironoko/abbrs
 ```
 
 ### Build from source
@@ -46,54 +46,54 @@ cargo install --path .
 1. Generate a config file:
 
 ```bash
-kort init config
+abbrs init config
 ```
 
-This creates `~/.config/kort/kort.toml`.
+This creates `~/.config/abbrs/abbrs.toml`.
 
 2. Add the zsh integration to your `.zshrc`:
 
 ```bash
-eval "$(kort init zsh)"
+eval "$(abbrs init zsh)"
 ```
 
 3. Compile your config:
 
 ```bash
-kort compile
+abbrs compile
 ```
 
 ## Migrating from Aliases
 
 ### From zsh aliases
 
-Pipe the output of `alias` into `kort import aliases`:
+Pipe the output of `alias` into `abbrs import aliases`:
 
 ```bash
-alias | kort import aliases
+alias | abbrs import aliases
 ```
 
-This parses each `alias name='expansion'` line and appends it to your `kort.toml`. Aliases that conflict with PATH commands are automatically marked with `allow_conflict = true`.
+This parses each `alias name='expansion'` line and appends it to your `abbrs.toml`. Aliases that conflict with PATH commands are automatically marked with `allow_conflict = true`.
 
 ### From fish abbreviations
 
-Pipe the output of `abbr` into `kort import fish`, or pass a file path:
+Pipe the output of `abbr` into `abbrs import fish`, or pass a file path:
 
 ```bash
-fish -c "abbr" | kort import fish
+fish -c "abbr" | abbrs import fish
 # or
-kort import fish /path/to/abbreviations.txt
+abbrs import fish /path/to/abbreviations.txt
 ```
 
 ### From git aliases
 
 ```bash
-kort import git-aliases
+abbrs import git-aliases
 ```
 
 ## Configuration
 
-Edit `~/.config/kort/kort.toml` to define your abbreviations.
+Edit `~/.config/abbrs/abbrs.toml` to define your abbreviations.
 
 ### Regular Abbreviations
 
@@ -208,7 +208,7 @@ regex = true
 
 ## Conflict Detection
 
-When you run `kort compile`, kort scans your `$PATH` and checks zsh builtins to detect abbreviations that shadow existing commands.
+When you run `abbrs compile`, abbrs scans your `$PATH` and checks zsh builtins to detect abbreviations that shadow existing commands.
 
 | Conflict Type | Behavior |
 |---|---|
@@ -238,7 +238,7 @@ The zsh integration sets up the following key bindings:
 
 ## Prefix Candidates
 
-When you type a partial keyword and press Space, kort shows matching abbreviations as candidates if no exact match is found.
+When you type a partial keyword and press Space, abbrs shows matching abbreviations as candidates if no exact match is found.
 
 For example, with these abbreviations defined:
 
@@ -271,20 +271,20 @@ Candidates respect abbreviation scope:
 - At **command position**: regular, global, and command-scoped abbreviations are shown
 - At **argument position**: only global and matching command-scoped abbreviations are shown
 
-The prefix index is built automatically during `kort compile` — no extra configuration needed. Candidates are shown only when 2 or more matches exist.
+The prefix index is built automatically during `abbrs compile` — no extra configuration needed. Candidates are shown only when 2 or more matches exist.
 
 ## Adding Abbreviations from the CLI
 
-Instead of editing `kort.toml` by hand, you can use `kort add`:
+Instead of editing `abbrs.toml` by hand, you can use `abbrs add`:
 
 ### Non-interactive
 
 ```bash
-kort add g "git"
-kort add gc "git commit -m '{{message}}'" --global
-kort add main "main --branch" --context-lbuffer "^git (checkout|switch) "
-kort add TODAY "date +%Y-%m-%d" --evaluate --global
-kort add gs "git status --short" --allow-conflict
+abbrs add g "git"
+abbrs add gc "git commit -m '{{message}}'" --global
+abbrs add main "main --branch" --context-lbuffer "^git (checkout|switch) "
+abbrs add TODAY "date +%Y-%m-%d" --evaluate --global
+abbrs add gs "git status --short" --allow-conflict
 ```
 
 | Flag | Description |
@@ -301,10 +301,10 @@ kort add gs "git status --short" --allow-conflict
 
 ### Interactive
 
-Run `kort add` without arguments to enter interactive mode:
+Run `abbrs add` without arguments to enter interactive mode:
 
 ```bash
-kort add
+abbrs add
 ```
 
 You will be prompted for the keyword, expansion, type (regular / global / context), and other options.
@@ -313,41 +313,41 @@ You will be prompted for the keyword, expansion, type (regular / global / contex
 
 | Command | Description |
 |---|---|
-| `kort init config` | Generate a config template at `~/.config/kort/kort.toml` |
-| `kort init zsh` | Output zsh integration script (usage: `eval "$(kort init zsh)"`) |
-| `kort add` | Add an abbreviation interactively |
-| `kort add <keyword> <expansion>` | Add an abbreviation with options |
-| `kort erase <keyword>` | Erase an abbreviation from config (`--command`, `--global` to target specific entries) |
-| `kort rename <old> <new>` | Rename an abbreviation keyword (`--command`, `--global` to target specific entries) |
-| `kort query <keyword>` | Check if an abbreviation exists (`--command`, `--global` to target specific entries) |
-| `kort show [keyword]` | Show abbreviations in re-importable `kort add` format |
-| `kort compile` | Validate config, detect conflicts, and generate binary cache |
-| `kort check` | Validate config syntax without compiling |
-| `kort list` | Show all registered abbreviations |
-| `kort import aliases` | Import from zsh aliases (stdin) |
-| `kort import fish [file]` | Import from fish abbreviations |
-| `kort import git-aliases` | Import from git aliases |
-| `kort export` | Export abbreviations in `kort add` format |
-| `kort remind` | Check for abbreviation reminders (called by ZLE) |
-| `kort expand` | Expand an abbreviation (called by the zsh widget) |
-| `kort next-placeholder` | Jump to next placeholder (called by the zsh widget) |
-| `kort serve` | Start persistent coproc mode for sub-100µs expansion latency |
+| `abbrs init config` | Generate a config template at `~/.config/abbrs/abbrs.toml` |
+| `abbrs init zsh` | Output zsh integration script (usage: `eval "$(abbrs init zsh)"`) |
+| `abbrs add` | Add an abbreviation interactively |
+| `abbrs add <keyword> <expansion>` | Add an abbreviation with options |
+| `abbrs erase <keyword>` | Erase an abbreviation from config (`--command`, `--global` to target specific entries) |
+| `abbrs rename <old> <new>` | Rename an abbreviation keyword (`--command`, `--global` to target specific entries) |
+| `abbrs query <keyword>` | Check if an abbreviation exists (`--command`, `--global` to target specific entries) |
+| `abbrs show [keyword]` | Show abbreviations in re-importable `abbrs add` format |
+| `abbrs compile` | Validate config, detect conflicts, and generate binary cache |
+| `abbrs check` | Validate config syntax without compiling |
+| `abbrs list` | Show all registered abbreviations |
+| `abbrs import aliases` | Import from zsh aliases (stdin) |
+| `abbrs import fish [file]` | Import from fish abbreviations |
+| `abbrs import git-aliases` | Import from git aliases |
+| `abbrs export` | Export abbreviations in `abbrs add` format |
+| `abbrs remind` | Check for abbreviation reminders (called by ZLE) |
+| `abbrs expand` | Expand an abbreviation (called by the zsh widget) |
+| `abbrs next-placeholder` | Jump to next placeholder (called by the zsh widget) |
+| `abbrs serve` | Start persistent coproc mode for sub-100µs expansion latency |
 
 ## Auto-Recompilation
 
-When you edit `kort.toml`, the next expansion automatically detects the stale cache and recompiles. No manual `kort compile` needed after config changes.
+When you edit `abbrs.toml`, the next expansion automatically detects the stale cache and recompiles. No manual `abbrs compile` needed after config changes.
 
 ## Performance
 
-kort is designed for imperceptible expansion latency. Below are benchmark results comparing kort with [zsh-abbr](https://github.com/olets/zsh-abbr).
+abbrs is designed for imperceptible expansion latency. Below are benchmark results comparing abbrs with [zsh-abbr](https://github.com/olets/zsh-abbr).
 
 ### Architecture comparison
 
-| | kort | zsh-abbr |
+| | abbrs | zsh-abbr |
 |---|---|---|
 | Language | Rust (compiled binary) | Zsh (shell script) |
 | Data structure | `FxHashMap` (O(1) lookup) | Zsh associative array |
-| Invocation | External process / coproc (`kort serve`) | In-process function call |
+| Invocation | External process / coproc (`abbrs serve`) | In-process function call |
 | Cache format | bitcode (binary) | Plain text files |
 
 ### Expansion lookup (in-process, criterion)
@@ -365,14 +365,14 @@ The core HashMap lookup scales O(1) regardless of abbreviation count:
 
 Measured with the comparison benchmark (`benchmarks/comparison/bench.zsh`, 1000 iterations per measurement):
 
-| Abbreviation count | kort expand | kort serve (coproc) | zsh-abbr |
+| Abbreviation count | abbrs expand | abbrs serve (coproc) | zsh-abbr |
 |---|---|---|---|
 | 10 | ~1.0 ms | ~0.05 ms | ~0.07 ms |
 | 50 | ~1.0 ms | ~0.05 ms | ~0.12 ms |
 | 100 | ~1.0 ms | ~0.05 ms | ~0.18 ms |
 | 500 | ~1.1 ms | ~0.06 ms | ~0.70 ms |
 
-> **Note:** `kort expand` includes fork+exec overhead (~1 ms), which dominates the actual lookup time. `kort serve` eliminates this by running as a persistent coproc, communicating via pipe — achieving **sub-100µs** latency that is faster than zsh-abbr at any scale.
+> **Note:** `abbrs expand` includes fork+exec overhead (~1 ms), which dominates the actual lookup time. `abbrs serve` eliminates this by running as a persistent coproc, communicating via pipe — achieving **sub-100µs** latency that is faster than zsh-abbr at any scale.
 
 ### Other operations (criterion)
 

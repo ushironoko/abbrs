@@ -1,54 +1,54 @@
-# kort - Fast and safe abbreviation expansion for zsh
+# abbrs - Fast and safe abbreviation expansion for zsh
 # Source this file in your .zshrc:
-#   source /path/to/kort.zsh
+#   source /path/to/abbrs.zsh
 
 # --- Coproc management ---
 
-typeset -g _KORT_COPROC_PID=0
+typeset -g _ABBRS_COPROC_PID=0
 
 # --- Candidate cycling state ---
 
-typeset -g  _KORT_CYCLING=0
-typeset -ga _KORT_CANDIDATES=()
-typeset -g  _KORT_CYCLE_INDEX=0
-typeset -g  _KORT_CYCLE_LPREFIX=""
-typeset -g  _KORT_CYCLE_RBUFFER=""
-typeset -g  _KORT_CYCLE_ORIG_TOKEN=""
+typeset -g  _ABBRS_CYCLING=0
+typeset -ga _ABBRS_CANDIDATES=()
+typeset -g  _ABBRS_CYCLE_INDEX=0
+typeset -g  _ABBRS_CYCLE_LPREFIX=""
+typeset -g  _ABBRS_CYCLE_RBUFFER=""
+typeset -g  _ABBRS_CYCLE_ORIG_TOKEN=""
 
 # Note: zsh coproc is a singleton — only one coproc per shell.
-# If another plugin uses coproc, it will conflict with kort.
-_kort_start_coproc() {
-  _kort_stop_coproc
-  coproc kort serve 2>/dev/null
-  _KORT_COPROC_PID=$!
+# If another plugin uses coproc, it will conflict with abbrs.
+_abbrs_start_coproc() {
+  _abbrs_stop_coproc
+  coproc abbrs serve 2>/dev/null
+  _ABBRS_COPROC_PID=$!
 }
 
-_kort_stop_coproc() {
-  if (( _KORT_COPROC_PID > 0 )); then
-    kill $_KORT_COPROC_PID 2>/dev/null
-    wait $_KORT_COPROC_PID 2>/dev/null
-    _KORT_COPROC_PID=0
+_abbrs_stop_coproc() {
+  if (( _ABBRS_COPROC_PID > 0 )); then
+    kill $_ABBRS_COPROC_PID 2>/dev/null
+    wait $_ABBRS_COPROC_PID 2>/dev/null
+    _ABBRS_COPROC_PID=0
   fi
 }
 
 if (( $+functions[add-zsh-hook] )); then
-  add-zsh-hook zshexit _kort_stop_coproc
+  add-zsh-hook zshexit _abbrs_stop_coproc
 else
-  zshexit() { _kort_stop_coproc }
+  zshexit() { _abbrs_stop_coproc }
 fi
 
 # --- Coproc communication ---
 
-typeset -ga _kort_reply
+typeset -ga _abbrs_reply
 
-_kort_request() {
+_abbrs_request() {
   local request="$1"
-  _kort_reply=()
+  _abbrs_reply=()
 
   # Check if coproc is alive
-  if (( _KORT_COPROC_PID <= 0 )) || ! kill -0 $_KORT_COPROC_PID 2>/dev/null; then
-    _kort_start_coproc
-    if (( _KORT_COPROC_PID <= 0 )); then
+  if (( _ABBRS_COPROC_PID <= 0 )) || ! kill -0 $_ABBRS_COPROC_PID 2>/dev/null; then
+    _abbrs_start_coproc
+    if (( _ABBRS_COPROC_PID <= 0 )); then
       return 1
     fi
   fi
@@ -63,70 +63,70 @@ _kort_request() {
     if [[ $line == $'\x1e'* ]]; then
       break
     fi
-    _kort_reply+=( "$line" )
+    _abbrs_reply+=( "$line" )
   done
   return 0
 }
 
 # --- Fallback (per-process mode) ---
 
-_kort_expand_fallback() {
+_abbrs_expand_fallback() {
   local -a out
-  out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
+  out=( "${(f)$(abbrs expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
 
   if [[ $out[1] == stale_cache ]]; then
-    kort compile 2>/dev/null
-    out=( "${(f)$(kort expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
+    abbrs compile 2>/dev/null
+    out=( "${(f)$(abbrs expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
   fi
 
   echo "${(F)out}"
 }
 
-_kort_placeholder_fallback() {
-  kort next-placeholder --lbuffer="$LBUFFER" --rbuffer="$RBUFFER"
+_abbrs_placeholder_fallback() {
+  abbrs next-placeholder --lbuffer="$LBUFFER" --rbuffer="$RBUFFER"
 }
 
-_kort_remind_fallback() {
-  kort remind --buffer="$1" 2>/dev/null
+_abbrs_remind_fallback() {
+  abbrs remind --buffer="$1" 2>/dev/null
 }
 
 # --- Candidate cycling helpers ---
 
-_kort_clear_candidates() {
-  if (( _KORT_CYCLING )); then
+_abbrs_clear_candidates() {
+  if (( _ABBRS_CYCLING )); then
     local restore=${1:-0}
     if (( restore )); then
       # Cancel: restore original token
-      LBUFFER="${_KORT_CYCLE_LPREFIX}${_KORT_CYCLE_ORIG_TOKEN}"
-      RBUFFER="$_KORT_CYCLE_RBUFFER"
+      LBUFFER="${_ABBRS_CYCLE_LPREFIX}${_ABBRS_CYCLE_ORIG_TOKEN}"
+      RBUFFER="$_ABBRS_CYCLE_RBUFFER"
     fi
-    _KORT_CYCLING=0
-    _KORT_CANDIDATES=()
-    _KORT_CYCLE_INDEX=0
-    _KORT_CYCLE_LPREFIX=""
-    _KORT_CYCLE_RBUFFER=""
-    _KORT_CYCLE_ORIG_TOKEN=""
+    _ABBRS_CYCLING=0
+    _ABBRS_CANDIDATES=()
+    _ABBRS_CYCLE_INDEX=0
+    _ABBRS_CYCLE_LPREFIX=""
+    _ABBRS_CYCLE_RBUFFER=""
+    _ABBRS_CYCLE_ORIG_TOKEN=""
     zle -M ""
   fi
 }
 
-_kort_cycle_next() {
-  (( _KORT_CYCLE_INDEX = (_KORT_CYCLE_INDEX % $#_KORT_CANDIDATES) + 1 ))
+_abbrs_cycle_next() {
+  (( _ABBRS_CYCLE_INDEX = (_ABBRS_CYCLE_INDEX % $#_ABBRS_CANDIDATES) + 1 ))
 
-  local selected="${_KORT_CANDIDATES[$_KORT_CYCLE_INDEX]}"
+  local selected="${_ABBRS_CANDIDATES[$_ABBRS_CYCLE_INDEX]}"
   local kw="${selected%%	*}"
 
-  LBUFFER="${_KORT_CYCLE_LPREFIX}${kw}"
-  RBUFFER="$_KORT_CYCLE_RBUFFER"
+  LBUFFER="${_ABBRS_CYCLE_LPREFIX}${kw}"
+  RBUFFER="$_ABBRS_CYCLE_RBUFFER"
 
   local msg="" i
-  for (( i=1; i <= $#_KORT_CANDIDATES; i++ )); do
-    local ckw="${_KORT_CANDIDATES[$i]%%	*}"
-    local cexp="${_KORT_CANDIDATES[$i]#*	}"
+  for (( i=1; i <= $#_ABBRS_CANDIDATES; i++ )); do
+    local ckw="${_ABBRS_CANDIDATES[$i]%%	*}"
+    local cexp="${_ABBRS_CANDIDATES[$i]#*	}"
     if (( i > 1 )); then
       msg+=$'\n'
     fi
-    if (( i == _KORT_CYCLE_INDEX )); then
+    if (( i == _ABBRS_CYCLE_INDEX )); then
       msg+=$'\x1b[7m'" ${ckw} → ${cexp} "$'\x1b[0m'
     else
       msg+="  ${ckw} → ${cexp}"
@@ -137,7 +137,7 @@ _kort_cycle_next() {
 
 # --- Response handling ---
 
-_kort_handle_expand_response() {
+_abbrs_handle_expand_response() {
   local -a out
   out=( "$@" )
 
@@ -176,28 +176,28 @@ _kort_handle_expand_response() {
       ;;
     candidates)
       local count=$out[2]
-      _KORT_CANDIDATES=()
+      _ABBRS_CANDIDATES=()
       local i
       for (( i=3; i <= count + 2; i++ )); do
-        _KORT_CANDIDATES+=( "$out[$i]" )
+        _ABBRS_CANDIDATES+=( "$out[$i]" )
       done
 
       local lbuf="$LBUFFER"
       if [[ "$lbuf" == *" "* ]]; then
-        _KORT_CYCLE_LPREFIX="${lbuf% *} "
-        _KORT_CYCLE_ORIG_TOKEN="${lbuf##* }"
+        _ABBRS_CYCLE_LPREFIX="${lbuf% *} "
+        _ABBRS_CYCLE_ORIG_TOKEN="${lbuf##* }"
       else
-        _KORT_CYCLE_LPREFIX=""
-        _KORT_CYCLE_ORIG_TOKEN="$lbuf"
+        _ABBRS_CYCLE_LPREFIX=""
+        _ABBRS_CYCLE_ORIG_TOKEN="$lbuf"
       fi
-      _KORT_CYCLE_RBUFFER="$RBUFFER"
-      _KORT_CYCLING=1
-      _KORT_CYCLE_INDEX=0
+      _ABBRS_CYCLE_RBUFFER="$RBUFFER"
+      _ABBRS_CYCLING=1
+      _ABBRS_CYCLE_INDEX=0
 
       local msg=""
-      for (( i=1; i <= $#_KORT_CANDIDATES; i++ )); do
-        local kw="${_KORT_CANDIDATES[$i]%%	*}"
-        local exp="${_KORT_CANDIDATES[$i]#*	}"
+      for (( i=1; i <= $#_ABBRS_CANDIDATES; i++ )); do
+        local kw="${_ABBRS_CANDIDATES[$i]%%	*}"
+        local exp="${_ABBRS_CANDIDATES[$i]#*	}"
         if (( i > 1 )); then
           msg+=$'\n'
         fi
@@ -211,7 +211,7 @@ _kort_handle_expand_response() {
   esac
 }
 
-_kort_handle_expand_accept_response() {
+_abbrs_handle_expand_accept_response() {
   local -a out
   out=( "$@" )
 
@@ -243,53 +243,53 @@ _kort_handle_expand_accept_response() {
 # --- Widget functions ---
 
 # Expand with stale_cache retry logic. Takes a response handler function name.
-_kort_expand_with_fallback() {
+_abbrs_expand_with_fallback() {
   local handler="$1"
 
-  if _kort_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
-    if [[ ${_kort_reply[1]} == stale_cache ]]; then
-      kort compile 2>/dev/null
-      _kort_request "reload"
-      if _kort_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
-        "$handler" "${_kort_reply[@]}"
+  if _abbrs_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
+    if [[ ${_abbrs_reply[1]} == stale_cache ]]; then
+      abbrs compile 2>/dev/null
+      _abbrs_request "reload"
+      if _abbrs_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
+        "$handler" "${_abbrs_reply[@]}"
       else
         local -a fb
-        fb=( "${(f)$(_kort_expand_fallback)}" )
+        fb=( "${(f)$(_abbrs_expand_fallback)}" )
         "$handler" "${fb[@]}"
       fi
     else
-      "$handler" "${_kort_reply[@]}"
+      "$handler" "${_abbrs_reply[@]}"
     fi
   else
     local -a fb
-    fb=( "${(f)$(_kort_expand_fallback)}" )
+    fb=( "${(f)$(_abbrs_expand_fallback)}" )
     "$handler" "${fb[@]}"
   fi
 }
 
 # Expand abbreviation on Space key
-kort-expand-space() {
-  if (( _KORT_CYCLING )); then
-    _kort_clear_candidates
+abbrs-expand-space() {
+  if (( _ABBRS_CYCLING )); then
+    _abbrs_clear_candidates
   fi
-  _kort_expand_with_fallback _kort_handle_expand_response
+  _abbrs_expand_with_fallback _abbrs_handle_expand_response
 }
 
 # Expand abbreviation on Enter key and execute
-kort-expand-accept() {
-  if (( _KORT_CYCLING )); then
-    _kort_clear_candidates
+abbrs-expand-accept() {
+  if (( _ABBRS_CYCLING )); then
+    _abbrs_clear_candidates
   fi
-  _kort_expand_with_fallback _kort_handle_expand_accept_response
+  _abbrs_expand_with_fallback _abbrs_handle_expand_accept_response
 
   # Check for reminders before accepting
-  if _kort_request $'remind\t'"${BUFFER}"; then
-    if [[ -n ${_kort_reply[1]} ]]; then
-      zle -M "${_kort_reply[1]}"
+  if _abbrs_request $'remind\t'"${BUFFER}"; then
+    if [[ -n ${_abbrs_reply[1]} ]]; then
+      zle -M "${_abbrs_reply[1]}"
     fi
   else
     local remind_msg
-    remind_msg=$(_kort_remind_fallback "$BUFFER")
+    remind_msg=$(_abbrs_remind_fallback "$BUFFER")
     if [[ -n $remind_msg ]]; then
       zle -M "$remind_msg"
     fi
@@ -299,23 +299,23 @@ kort-expand-accept() {
 }
 
 # Jump to next placeholder on Tab key
-kort-next-placeholder() {
+abbrs-next-placeholder() {
   # Priority 1: Candidate cycling (skip placeholder check during cycling)
-  if (( _KORT_CYCLING )); then
-    _kort_cycle_next
+  if (( _ABBRS_CYCLING )); then
+    _abbrs_cycle_next
     return
   fi
 
   # Priority 2: Placeholder jump
-  if _kort_request $'placeholder\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
-    if [[ ${_kort_reply[1]} == "success" && -n ${_kort_reply[2]} ]]; then
-      BUFFER=${_kort_reply[2]}
-      CURSOR=${_kort_reply[3]}
+  if _abbrs_request $'placeholder\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
+    if [[ ${_abbrs_reply[1]} == "success" && -n ${_abbrs_reply[2]} ]]; then
+      BUFFER=${_abbrs_reply[2]}
+      CURSOR=${_abbrs_reply[3]}
       return
     fi
   else
     local -a out
-    out=( "${(f)$(_kort_placeholder_fallback)}" )
+    out=( "${(f)$(_abbrs_placeholder_fallback)}" )
     if [[ $out[1] == "success" && -n $out[2] ]]; then
       BUFFER=$out[2]
       CURSOR=$out[3]
@@ -328,53 +328,53 @@ kort-next-placeholder() {
 }
 
 # Literal space (no expansion)
-kort-literal-space() {
-  _kort_clear_candidates 1
+abbrs-literal-space() {
+  _abbrs_clear_candidates 1
   zle self-insert
 }
 
 # Register widgets
-zle -N kort-expand-space
-zle -N kort-expand-accept
-zle -N kort-next-placeholder
-zle -N kort-literal-space
+zle -N abbrs-expand-space
+zle -N abbrs-expand-accept
+zle -N abbrs-next-placeholder
+zle -N abbrs-literal-space
 
 # Key bindings
-bindkey " " kort-expand-space
-bindkey "^M" kort-expand-accept
-bindkey "^I" kort-next-placeholder
-bindkey "^ " kort-literal-space
+bindkey " " abbrs-expand-space
+bindkey "^M" abbrs-expand-accept
+bindkey "^I" abbrs-next-placeholder
+bindkey "^ " abbrs-literal-space
 
-# Cancel candidate cycling on any non-kort keypress
-_kort_check_cycling() {
-  if (( _KORT_CYCLING )); then
+# Cancel candidate cycling on any non-abbrs keypress
+_abbrs_check_cycling() {
+  if (( _ABBRS_CYCLING )); then
     case "$LASTWIDGET" in
-      kort-expand-space|kort-expand-accept|kort-next-placeholder|kort-literal-space)
+      abbrs-expand-space|abbrs-expand-accept|abbrs-next-placeholder|abbrs-literal-space)
         ;;
       *)
         # Accept current candidate (don't restore) so the user's keystroke is preserved.
-        # Only explicit cancel (kort-literal-space / Ctrl+Space) restores the original token.
-        _kort_clear_candidates 0
+        # Only explicit cancel (abbrs-literal-space / Ctrl+Space) restores the original token.
+        _abbrs_clear_candidates 0
         ;;
     esac
   fi
 }
-zle -N _kort_check_cycling
+zle -N _abbrs_check_cycling
 # Try to load add-zle-hook-widget (shipped with zsh ≥5.3) for proper hook chaining.
 # +X forces immediate loading so $+functions is only true when the file actually exists in fpath.
 autoload -Uz +X add-zle-hook-widget 2>/dev/null
 if (( $+functions[add-zle-hook-widget] )); then
-  add-zle-hook-widget line-pre-redraw _kort_check_cycling
+  add-zle-hook-widget line-pre-redraw _abbrs_check_cycling
 else
   # Fallback for ancient zsh without add-zle-hook-widget
-  zle -N zle-line-pre-redraw _kort_check_cycling
+  zle -N zle-line-pre-redraw _abbrs_check_cycling
 fi
 
 # Start coproc on load
-_kort_start_coproc
+_abbrs_start_coproc
 
 # Zsh completion function
-_kort() {
+_abbrs() {
   local -a subcmds
   subcmds=(
     'compile:Compile config and verify conflicts'
@@ -382,7 +382,7 @@ _kort() {
     'next-placeholder:Jump to next placeholder'
     'list:List registered abbreviations'
     'check:Syntax check config only'
-    'init:Initialize kort'
+    'init:Initialize abbrs'
     'add:Add a new abbreviation'
     'erase:Erase an abbreviation'
     'rename:Rename an abbreviation'
@@ -394,7 +394,7 @@ _kort() {
     'serve:Start serve mode (coproc)'
   )
 
-  _kort_keywords() {
+  _abbrs_keywords() {
     local -a cfg_flag keywords
     local i config_val
     cfg_flag=()
@@ -409,7 +409,7 @@ _kort() {
         break
       fi
     done
-    keywords=( ${(f)"$(kort _list-keywords "${cfg_flag[@]}" 2>/dev/null)"} )
+    keywords=( ${(f)"$(abbrs _list-keywords "${cfg_flag[@]}" 2>/dev/null)"} )
     _describe 'keyword' keywords
   }
 
@@ -463,14 +463,14 @@ _kort() {
         '--command=[Only erase command-scoped entry]:command:' \
         '--global[Only erase global entry]' \
         '--config=[Config file path]:config file:_files' \
-        '1:keyword:_kort_keywords' && return
+        '1:keyword:_abbrs_keywords' && return
       ;;
     rename)
       _arguments -s \
         '--command=[Only rename command-scoped entry]:command:' \
         '--global[Only rename global entry]' \
         '--config=[Config file path]:config file:_files' \
-        '1:old keyword:_kort_keywords' \
+        '1:old keyword:_abbrs_keywords' \
         '2:new keyword:' && return
       ;;
     query)
@@ -478,12 +478,12 @@ _kort() {
         '--command=[Only query command-scoped entry]:command:' \
         '--global[Only query global entry]' \
         '--config=[Config file path]:config file:_files' \
-        '1:keyword:_kort_keywords' && return
+        '1:keyword:_abbrs_keywords' && return
       ;;
     show)
       _arguments -s \
         '--config=[Config file path]:config file:_files' \
-        '1:keyword:_kort_keywords' && return
+        '1:keyword:_abbrs_keywords' && return
       ;;
     remind)
       _arguments -s \
@@ -520,4 +520,4 @@ _kort() {
       ;;
   esac
 }
-(( $+functions[compdef] )) && compdef _kort kort
+(( $+functions[compdef] )) && compdef _abbrs abbrs

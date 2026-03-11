@@ -178,7 +178,7 @@ fn parse_fish_abbr(line: &str) -> Option<FishAbbrAttrs> {
                 i += 1;
                 break;
             }
-            // --position anywhere means global in kort
+            // --position anywhere means global in abbrs
             "--position" | "-p" => {
                 if i + 1 < parts.len() {
                     if parts[i + 1] == "anywhere" {
@@ -227,9 +227,9 @@ fn parse_fish_abbr(line: &str) -> Option<FishAbbrAttrs> {
         None
     };
 
-    // Map to kort's model:
+    // Map to abbrs's model:
     // - keyword: use regex pattern if --regex was given, otherwise use NAME
-    // - expansion: use positional text if present, otherwise function name (kort stores
+    // - expansion: use positional text if present, otherwise function name (abbrs stores
     //   the function name in the expansion field when function = true)
     let keyword = regex_pattern.as_ref().cloned().unwrap_or(name);
 
@@ -323,7 +323,7 @@ pub fn import_git_aliases(
     Ok(result)
 }
 
-/// Export abbreviations in `kort add` format
+/// Export abbreviations in `abbrs add` format
 pub fn export(config_path: &Path) -> Result<Vec<String>> {
     crate::manage::show(config_path, None)
 }
@@ -340,7 +340,7 @@ mod tests {
     use crate::config;
 
     fn setup_config(dir: &tempfile::TempDir) -> std::path::PathBuf {
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
         std::fs::write(&path, "[settings]\n").unwrap();
         path
     }
@@ -521,7 +521,7 @@ mod tests {
     #[test]
     fn test_export() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
         std::fs::write(
             &path,
             r#"
@@ -539,7 +539,7 @@ global = true
 
         let lines = export(&path).unwrap();
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].starts_with("kort add "));
+        assert!(lines[0].starts_with("abbrs add"));
         assert!(lines[1].contains("--global"));
     }
 
@@ -563,7 +563,7 @@ global = true
         let dir = tempfile::tempdir().unwrap();
         let path = setup_config(&dir);
 
-        // --function takes a value; kort stores it as expansion with function=true
+        // --function takes a value; abbrs stores it as expansion with function=true
         let fish_content = "abbr -a --function my_func -- mf\n";
         let result = import_fish(fish_content, &path).unwrap();
         assert_eq!(result.imported, 1);
@@ -579,7 +579,7 @@ global = true
         let dir = tempfile::tempdir().unwrap();
         let path = setup_config(&dir);
 
-        // --regex takes a value (the pattern); kort uses it as keyword
+        // --regex takes a value (the pattern); abbrs uses it as keyword
         let fish_content = "abbr -a --regex '^gc$' -- gc 'git commit'\n";
         let result = import_fish(fish_content, &path).unwrap();
         assert_eq!(result.imported, 1);

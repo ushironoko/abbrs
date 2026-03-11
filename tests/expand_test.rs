@@ -3,22 +3,22 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-fn kort_cmd() -> Command {
-    cargo_bin_cmd!("kort")
+fn abbrs_cmd() -> Command {
+    cargo_bin_cmd!("abbrs")
 }
 
 fn setup_compiled(dir: &TempDir, config_content: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-    let config_path = dir.path().join("kort.toml");
+    let config_path = dir.path().join("abbrs.toml");
     std::fs::write(&config_path, config_content).unwrap();
 
     // Compile
-    cargo_bin_cmd!("kort")
+    cargo_bin_cmd!("abbrs")
         .args(["compile", "--config", config_path.to_str().unwrap()])
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .assert()
         .success();
 
-    let cache_path = dir.path().join("cache").join("kort").join("kort.cache");
+    let cache_path = dir.path().join("cache").join("abbrs").join("abbrs.cache");
     (config_path, cache_path)
 }
 
@@ -34,7 +34,7 @@ expansion = "git"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",
@@ -64,7 +64,7 @@ expansion = "git"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",
@@ -94,7 +94,7 @@ global = true
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",
@@ -124,7 +124,7 @@ expansion = "git commit -m '{{message}}'"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",
@@ -169,7 +169,7 @@ expansion = "git commit"
     )
     .unwrap();
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",
@@ -188,7 +188,7 @@ expansion = "git commit"
 
 #[test]
 fn test_expand_missing_cache() {
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",
@@ -196,7 +196,7 @@ fn test_expand_missing_cache() {
             "--rbuffer",
             "",
             "--cache",
-            "/nonexistent/kort.cache",
+            "/nonexistent/abbrs.cache",
         ])
         .assert()
         .success()
@@ -205,7 +205,7 @@ fn test_expand_missing_cache() {
 
 #[test]
 fn test_next_placeholder() {
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "next-placeholder",
             "--lbuffer",
@@ -220,7 +220,7 @@ fn test_next_placeholder() {
 
 #[test]
 fn test_next_placeholder_none() {
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "next-placeholder",
             "--lbuffer",
@@ -253,7 +253,7 @@ expansion = "git diff"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",
@@ -295,7 +295,7 @@ expansion = "git push"
     );
 
     // "g" has exact match → should return success, not candidates
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "expand",
             "--lbuffer",

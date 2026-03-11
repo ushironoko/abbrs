@@ -1,11 +1,11 @@
 [package]
-name = "kort"
+name = "abbrs"
 version = "0.2.1"
 edition = "2021"
 authors = ["ushironoko"]
 description = "Fast and safe abbreviation expansion for zsh"
 license = "MIT"
-repository = "https://github.com/ushironoko/kort"
+repository = "https://github.com/ushironoko/abbrs"
 readme = "README.md"
 keywords = ["zsh", "abbreviation", "shell", "cli"]
 categories = ["command-line-utilities"]
@@ -13,11 +13,11 @@ rust-version = "1.80"
 include = ["src/", "shells/", "README.md", "LICENSE"]
 
 [[bin]]
-name = "kort"
+name = "abbrs"
 path = "src/main.rs"
 
 [lib]
-name = "kort"
+name = "abbrs"
 path = "src/lib.rs"
 
 [dependencies]

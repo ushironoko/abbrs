@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn test_append_to_config_new_file() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         // Create a minimal config first
         std::fs::write(&path, "[settings]\n").unwrap();
@@ -574,7 +574,7 @@ mod tests {
     #[test]
     fn test_append_to_config_duplicate_keyword() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = r#"[settings]
 
@@ -605,7 +605,7 @@ expansion = "git"
     #[test]
     fn test_append_to_config_same_keyword_different_command_scope() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = r#"[settings]
 
@@ -642,7 +642,7 @@ command = "git"
     #[test]
     fn test_append_to_config_same_keyword_command_vs_no_command() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = r#"[settings]
 
@@ -676,7 +676,7 @@ expansion = "checkout"
     #[test]
     fn test_append_to_config_global_entry() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         std::fs::write(&path, "[settings]\n").unwrap();
 
@@ -704,7 +704,7 @@ expansion = "checkout"
     #[test]
     fn test_append_to_config_context_entry() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         std::fs::write(&path, "[settings]\n").unwrap();
 
@@ -733,7 +733,7 @@ expansion = "checkout"
     #[test]
     fn test_append_to_config_same_keyword_different_context() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = r#"[settings]
 
@@ -768,7 +768,7 @@ context.lbuffer = "^git (checkout|switch)"
     #[test]
     fn test_append_to_config_same_keyword_same_context_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = r#"[settings]
 
@@ -801,7 +801,7 @@ context.lbuffer = "^git (checkout|switch)"
     #[test]
     fn test_append_to_config_context_vs_no_context_allowed() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = r#"[settings]
 
@@ -836,7 +836,7 @@ context.lbuffer = "^git (checkout|switch)"
     #[test]
     fn test_append_to_config_invalid_entry_does_not_corrupt_file() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = "[settings]\n";
         std::fs::write(&path, initial).unwrap();
@@ -866,7 +866,7 @@ context.lbuffer = "^git (checkout|switch)"
     #[test]
     fn test_append_to_config_command_and_global_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("kort.toml");
+        let path = dir.path().join("abbrs.toml");
 
         let initial = "[settings]\n";
         std::fs::write(&path, initial).unwrap();

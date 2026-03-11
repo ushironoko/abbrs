@@ -6,16 +6,16 @@ use tempfile::TempDir;
 const EOR: char = '\x1e';
 
 fn setup_compiled(dir: &TempDir, config_content: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-    let config_path = dir.path().join("kort.toml");
+    let config_path = dir.path().join("abbrs.toml");
     std::fs::write(&config_path, config_content).unwrap();
 
-    cargo_bin_cmd!("kort")
+    cargo_bin_cmd!("abbrs")
         .args(["compile", "--config", config_path.to_str().unwrap()])
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .assert()
         .success();
 
-    let cache_path = dir.path().join("cache").join("kort").join("kort.cache");
+    let cache_path = dir.path().join("cache").join("abbrs").join("abbrs.cache");
     (config_path, cache_path)
 }
 
@@ -27,7 +27,7 @@ struct ServeProcess {
 
 impl ServeProcess {
     fn start(cache_path: &std::path::Path, config_path: &std::path::Path) -> Self {
-        let kort_bin = cargo_bin_cmd!("kort").get_program().to_owned();
+        let kort_bin = cargo_bin_cmd!("abbrs").get_program().to_owned();
         let mut child = Command::new(kort_bin)
             .args([
                 "serve",
@@ -40,7 +40,7 @@ impl ServeProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .expect("failed to start kort serve");
+            .expect("failed to start abbrs serve");
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
@@ -188,7 +188,7 @@ expansion = "git commit"
 #[test]
 fn test_serve_placeholder() {
     let dir = TempDir::new().unwrap();
-    let config_path = dir.path().join("kort.toml");
+    let config_path = dir.path().join("abbrs.toml");
     std::fs::write(&config_path, "").unwrap();
     let cache_path = dir.path().join("nonexistent.cache");
 
@@ -202,7 +202,7 @@ fn test_serve_placeholder() {
 #[test]
 fn test_serve_placeholder_none() {
     let dir = TempDir::new().unwrap();
-    let config_path = dir.path().join("kort.toml");
+    let config_path = dir.path().join("abbrs.toml");
     std::fs::write(&config_path, "").unwrap();
     let cache_path = dir.path().join("nonexistent.cache");
 
@@ -284,7 +284,7 @@ keyword = "gp"
 expansion = "git push"
 "#;
     std::fs::write(&config_path, new_config).unwrap();
-    cargo_bin_cmd!("kort")
+    cargo_bin_cmd!("abbrs")
         .args(["compile", "--config", config_path.to_str().unwrap()])
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .assert()
@@ -408,7 +408,7 @@ expansion = "git"
 #[test]
 fn test_serve_no_cache_file() {
     let dir = TempDir::new().unwrap();
-    let config_path = dir.path().join("kort.toml");
+    let config_path = dir.path().join("abbrs.toml");
     std::fs::write(&config_path, r#"
 [[abbr]]
 keyword = "g"

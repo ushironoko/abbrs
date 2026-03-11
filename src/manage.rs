@@ -194,7 +194,7 @@ pub fn query(
     Ok(false)
 }
 
-/// Show abbreviations in `kort add` re-importable format
+/// Show abbreviations in `abbrs add` re-importable format
 pub fn show(config_path: &Path, keyword_filter: Option<&str>) -> Result<Vec<String>> {
     let cfg = config::load(config_path)?;
     let mut lines = Vec::new();
@@ -206,7 +206,7 @@ pub fn show(config_path: &Path, keyword_filter: Option<&str>) -> Result<Vec<Stri
             }
         }
 
-        let mut cmd = format!("kort add {} {}", shell_quote(&abbr.keyword), shell_quote(&abbr.expansion));
+        let mut cmd = format!("abbrs add {} {}", shell_quote(&abbr.keyword), shell_quote(&abbr.expansion));
 
         if abbr.global {
             cmd.push_str(" --global");
@@ -257,7 +257,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn write_config(dir: &TempDir, content: &str) -> std::path::PathBuf {
-        let config_path = dir.path().join("kort.toml");
+        let config_path = dir.path().join("abbrs.toml");
         std::fs::write(&config_path, content).unwrap();
         config_path
     }
@@ -456,7 +456,7 @@ global = true
 
         let lines = show(&path, None).unwrap();
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("kort add g git"));
+        assert!(lines[0].contains("abbrs add g git"));
         assert!(lines[1].contains("--global"));
     }
 
@@ -478,7 +478,7 @@ expansion = "git commit"
 
         let lines = show(&path, Some("gc")).unwrap();
         assert_eq!(lines.len(), 1);
-        assert!(lines[0].contains("kort add gc"));
+        assert!(lines[0].contains("abbrs add gc"));
     }
 
     #[test]

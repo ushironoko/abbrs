@@ -3,19 +3,19 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-fn kort_cmd() -> Command {
-    cargo_bin_cmd!("kort")
+fn abbrs_cmd() -> Command {
+    cargo_bin_cmd!("abbrs")
 }
 
 fn create_config(dir: &TempDir, content: &str) -> std::path::PathBuf {
-    let config_path = dir.path().join("kort.toml");
+    let config_path = dir.path().join("abbrs.toml");
     std::fs::write(&config_path, content).unwrap();
     config_path
 }
 
 #[test]
 fn test_help() {
-    kort_cmd()
+    abbrs_cmd()
         .arg("--help")
         .assert()
         .success()
@@ -24,11 +24,11 @@ fn test_help() {
 
 #[test]
 fn test_version() {
-    kort_cmd()
+    abbrs_cmd()
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("kort"));
+        .stdout(predicate::str::contains("abbrs"));
 }
 
 #[test]
@@ -43,7 +43,7 @@ expansion = "git"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["check", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
@@ -62,7 +62,7 @@ expansion = "git"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["check", "--config", config_path.to_str().unwrap()])
         .assert()
         .failure();
@@ -70,8 +70,8 @@ expansion = "git"
 
 #[test]
 fn test_check_missing_config() {
-    kort_cmd()
-        .args(["check", "--config", "/nonexistent/kort.toml"])
+    abbrs_cmd()
+        .args(["check", "--config", "/nonexistent/abbrs.toml"])
         .assert()
         .failure();
 }
@@ -93,7 +93,7 @@ global = true
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["list", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
@@ -113,7 +113,7 @@ fn test_add_with_args() {
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "add",
             "g",
@@ -140,7 +140,7 @@ fn test_add_with_global_flag() {
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "add",
             "NE",
@@ -166,7 +166,7 @@ fn test_add_with_context() {
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "add",
             "main",
@@ -194,7 +194,7 @@ expansion = "git"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "add",
             "g",
@@ -212,7 +212,7 @@ fn test_add_missing_expansion_error() {
     let dir = TempDir::new().unwrap();
     let config_path = create_config(&dir, "[settings]\n");
 
-    kort_cmd()
+    abbrs_cmd()
         .args([
             "add",
             "g",
@@ -225,36 +225,36 @@ fn test_add_missing_expansion_error() {
 
 #[test]
 fn test_add_missing_config() {
-    kort_cmd()
-        .args(["add", "g", "git", "--config", "/nonexistent/kort.toml"])
+    abbrs_cmd()
+        .args(["add", "g", "git", "--config", "/nonexistent/abbrs.toml"])
         .assert()
         .failure();
 }
 
 #[test]
 fn test_init_zsh_outputs_shell_script() {
-    kort_cmd()
+    abbrs_cmd()
         .args(["init", "zsh"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("kort-expand-space"))
+        .stdout(predicate::str::contains("abbrs-expand-space"))
         .stdout(predicate::str::contains("zle -N"))
         .stdout(predicate::str::contains("bindkey"))
         // Candidate cycling: hook widget, autoload, and add-zle-hook-widget registration
-        .stdout(predicate::str::contains("_kort_check_cycling"))
-        .stdout(predicate::str::contains("zle -N _kort_check_cycling"))
+        .stdout(predicate::str::contains("_abbrs_check_cycling"))
+        .stdout(predicate::str::contains("zle -N _abbrs_check_cycling"))
         .stdout(predicate::str::contains(
             "autoload -Uz +X add-zle-hook-widget",
         ))
         .stdout(predicate::str::contains(
-            "add-zle-hook-widget line-pre-redraw _kort_check_cycling",
+            "add-zle-hook-widget line-pre-redraw _abbrs_check_cycling",
         ))
         // Candidate cycling widgets
-        .stdout(predicate::str::contains("kort-next-placeholder"))
-        .stdout(predicate::str::contains("kort-literal-space"));
+        .stdout(predicate::str::contains("abbrs-next-placeholder"))
+        .stdout(predicate::str::contains("abbrs-literal-space"));
 }
 
-/// Regression test: verify that `kort init zsh` autoloads `add-zle-hook-widget`
+/// Regression test: verify that `abbrs init zsh` autoloads `add-zle-hook-widget`
 /// and uses it for hook registration in a clean zsh session (`zsh -f`).
 #[test]
 fn test_init_zsh_hook_chaining_in_clean_shell() {
@@ -267,8 +267,8 @@ fn test_init_zsh_hook_chaining_in_clean_shell() {
         return;
     }
 
-    let kort_bin = cargo_bin_cmd!("kort").get_program().to_owned();
-    let kort_path = kort_bin.to_str().unwrap();
+    let abbrs_bin = cargo_bin_cmd!("abbrs").get_program().to_owned();
+    let abbrs_path = abbrs_bin.to_str().unwrap();
 
     // Source the init script in zsh -f (no user rc files) and check that
     // add-zle-hook-widget was autoloaded and used (i.e. the direct
@@ -276,7 +276,7 @@ fn test_init_zsh_hook_chaining_in_clean_shell() {
     //
     // We probe this by:
     //   1. Checking that `add-zle-hook-widget` is a loaded function after sourcing.
-    //   2. Checking that the direct fallback bind (`zle -N zle-line-pre-redraw _kort_check_cycling`)
+    //   2. Checking that the direct fallback bind (`zle -N zle-line-pre-redraw _abbrs_check_cycling`)
     //      was NOT called. Note: `add-zle-hook-widget` itself registers a dispatcher widget
     //      (`zle -N zle-line-pre-redraw azhw:zle-line-pre-redraw`), so we match the exact
     //      fallback signature to distinguish the two paths.
@@ -288,7 +288,7 @@ fn test_init_zsh_hook_chaining_in_clean_shell() {
         }}
         bindkey() {{ : }}
 
-        eval "$("{kort}" init zsh)"
+        eval "$("{abbrs}" init zsh)"
 
         # After sourcing, add-zle-hook-widget must be a function
         if (( $+functions[add-zle-hook-widget] )); then
@@ -297,12 +297,12 @@ fn test_init_zsh_hook_chaining_in_clean_shell() {
             echo "AUTOLOAD_MISSING"
         fi
 
-        # The fallback path registers "zle -N zle-line-pre-redraw _kort_check_cycling".
+        # The fallback path registers "zle -N zle-line-pre-redraw _abbrs_check_cycling".
         # add-zle-hook-widget itself also calls "zle -N zle-line-pre-redraw azhw:..."
         # so we must match the exact fallback signature to distinguish the two paths.
         local found_fallback=0
         for call in "${{_ZLE_CALLS[@]}}"; do
-            if [[ "$call" == *"-N zle-line-pre-redraw _kort_check_cycling"* ]]; then
+            if [[ "$call" == *"-N zle-line-pre-redraw _abbrs_check_cycling"* ]]; then
                 found_fallback=1
             fi
         done
@@ -312,7 +312,7 @@ fn test_init_zsh_hook_chaining_in_clean_shell() {
             echo "HOOK_CHAINED"
         fi
         "#,
-        kort = kort_path,
+        abbrs = abbrs_path,
     );
 
     let output = std::process::Command::new("zsh")
@@ -337,13 +337,13 @@ fn test_init_zsh_hook_chaining_in_clean_shell() {
 fn test_init_config_creates_template() {
     let dir = TempDir::new().unwrap();
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["init", "config"])
         .env("XDG_CONFIG_HOME", dir.path())
         .assert()
         .success();
 
-    let xdg_config_path = dir.path().join("kort").join("kort.toml");
+    let xdg_config_path = dir.path().join("abbrs").join("abbrs.toml");
     assert!(xdg_config_path.exists(), "config file should be created at XDG path");
     let content = std::fs::read_to_string(&xdg_config_path).unwrap();
     assert!(content.contains("[settings]"), "config template should contain [settings]");
@@ -351,7 +351,7 @@ fn test_init_config_creates_template() {
 
 #[test]
 fn test_init_without_subcommand_shows_help() {
-    kort_cmd()
+    abbrs_cmd()
         .arg("init")
         .assert()
         .failure()
@@ -364,7 +364,7 @@ fn test_list_empty() {
     let dir = TempDir::new().unwrap();
     let config_path = create_config(&dir, "");
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["list", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
@@ -392,7 +392,7 @@ global = true
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["_list-keywords", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
@@ -418,7 +418,7 @@ expansion = "npm run start:dev"
 "#,
     );
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["_list-keywords", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
@@ -432,7 +432,7 @@ fn test_list_keywords_empty_config() {
     let dir = TempDir::new().unwrap();
     let config_path = create_config(&dir, "");
 
-    kort_cmd()
+    abbrs_cmd()
         .args(["_list-keywords", "--config", config_path.to_str().unwrap()])
         .assert()
         .success()
@@ -441,7 +441,7 @@ fn test_list_keywords_empty_config() {
 
 #[test]
 fn test_list_keywords_hidden_from_help() {
-    kort_cmd()
+    abbrs_cmd()
         .arg("--help")
         .assert()
         .success()

@@ -1,7 +1,7 @@
-use kort::config::{Abbreviation, AbbreviationContext};
-use kort::context::RegexCache;
-use kort::expand::{expand, ExpandInput};
-use kort::matcher;
+use abbrs::config::{Abbreviation, AbbreviationContext};
+use abbrs::context::RegexCache;
+use abbrs::expand::{expand, ExpandInput};
+use abbrs::matcher;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 fn generate_abbreviations(count: usize) -> Vec<Abbreviation> {
