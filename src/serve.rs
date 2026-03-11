@@ -310,15 +310,25 @@ pub fn run_socket(
     cache_path: Option<PathBuf>,
     config_path: Option<PathBuf>,
 ) -> Result<()> {
+    use std::os::unix::fs::FileTypeExt;
     use std::os::unix::net::{UnixListener, UnixStream};
 
     let (cache_file, cfg_path) = resolve_paths(cache_path, config_path)?;
 
     // Stale cleanup: test if existing socket is alive
     if socket_path.exists() {
+        // Only attempt cleanup if the path is actually a Unix socket
+        let metadata = std::fs::symlink_metadata(&socket_path)?;
+        if !metadata.file_type().is_socket() {
+            anyhow::bail!(
+                "path exists and is not a socket: {}",
+                socket_path.display()
+            );
+        }
         match UnixStream::connect(&socket_path) {
             Ok(_) => anyhow::bail!("socket already in use: {}", socket_path.display()),
             Err(_) => {
+                // Socket file exists but no process is listening — stale
                 let _ = std::fs::remove_file(&socket_path);
             }
         }

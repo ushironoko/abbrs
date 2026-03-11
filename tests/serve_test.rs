@@ -659,6 +659,8 @@ expansion = "git"
 
 #[test]
 fn test_socket_stale_cleanup_on_start() {
+    use std::os::unix::net::UnixListener;
+
     let dir = TempDir::new().unwrap();
     let socket_path = dir.path().join("abbrs.sock");
     let (config_path, cache_path) = setup_compiled(
@@ -670,8 +672,12 @@ expansion = "git"
 "#,
     );
 
-    // Create a stale socket file (just a regular file, not a real socket)
-    std::fs::write(&socket_path, "stale").unwrap();
+    // Create a real stale socket (bind then drop the listener so nobody is listening)
+    {
+        let _listener = UnixListener::bind(&socket_path).unwrap();
+        // listener dropped here — socket file remains but nobody is listening
+    }
+    assert!(socket_path.exists());
 
     // Server should clean up stale socket and start successfully
     let proc = SocketServeProcess::start(&socket_path, &cache_path, &config_path);
@@ -679,6 +685,53 @@ expansion = "git"
     let response = conn.send("ping");
     assert_eq!(response, vec!["pong"]);
     drop(proc);
+}
+
+#[test]
+fn test_socket_refuses_non_socket_path() {
+    let dir = TempDir::new().unwrap();
+    let socket_path = dir.path().join("abbrs.sock");
+    let (config_path, cache_path) = setup_compiled(
+        &dir,
+        r#"
+[[abbr]]
+keyword = "g"
+expansion = "git"
+"#,
+    );
+
+    // Create a regular file at the socket path
+    std::fs::write(&socket_path, "not a socket").unwrap();
+
+    // Server should refuse to start and not delete the file
+    let abbrs_bin = cargo_bin_cmd!("abbrs").get_program().to_owned();
+    let output = Command::new(abbrs_bin)
+        .args([
+            "serve",
+            "--socket",
+            socket_path.to_str().unwrap(),
+            "--cache",
+            cache_path.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run abbrs serve");
+
+    assert!(!output.status.success(), "serve should have failed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not a socket"),
+        "stderr should mention 'not a socket', got: {}",
+        stderr
+    );
+    // The regular file should still exist (not deleted)
+    assert!(socket_path.exists(), "regular file should not be deleted");
+    let content = std::fs::read_to_string(&socket_path).unwrap();
+    assert_eq!(content, "not a socket");
 }
 
 #[test]
