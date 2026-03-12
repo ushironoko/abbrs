@@ -324,7 +324,10 @@ fn ensure_private_socket_dir(socket_path: &std::path::Path) -> Result<()> {
         .create(parent)
     {
         Ok(()) => {
-            // Created atomically with mode 0700 — no TOCTOU window
+            // DirBuilder::mode() is filtered by the process umask, so the
+            // on-disk mode may be more restrictive than 0700.  Explicitly
+            // set_permissions to guarantee the owner has full rwx.
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             // Directory exists — verify it's safe
