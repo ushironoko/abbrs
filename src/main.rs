@@ -642,6 +642,25 @@ fn cmd_show(keyword: Option<String>, cfg: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+fn print_import_result(result: &import::ImportResult) {
+    eprintln!("✓ imported {} abbreviation(s)", result.imported);
+    if result.evaluate_count > 0 {
+        eprintln!(
+            "  ⚠ {} abbreviation(s) use evaluate mode (shell command execution on expand)",
+            result.evaluate_count
+        );
+    }
+    if result.function_count > 0 {
+        eprintln!(
+            "  ⚠ {} abbreviation(s) use function mode (shell function call on expand)",
+            result.function_count
+        );
+    }
+    for s in &result.skipped {
+        eprintln!("  ⚠ skipped: {}", s);
+    }
+}
+
 fn cmd_import(source: ImportSource) -> Result<()> {
     match source {
         ImportSource::Aliases { config: cfg } => {
@@ -652,10 +671,7 @@ fn cmd_import(source: ImportSource) -> Result<()> {
             std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
 
             let result = import::import_aliases(&input, &config_path)?;
-            eprintln!("✓ imported {} abbreviation(s)", result.imported);
-            for s in &result.skipped {
-                eprintln!("  ⚠ skipped: {}", s);
-            }
+            print_import_result(&result);
             Ok(())
         }
         ImportSource::Fish {
@@ -676,10 +692,7 @@ fn cmd_import(source: ImportSource) -> Result<()> {
             };
 
             let result = import::import_fish(&content, &config_path)?;
-            eprintln!("✓ imported {} abbreviation(s)", result.imported);
-            for s in &result.skipped {
-                eprintln!("  ⚠ skipped: {}", s);
-            }
+            print_import_result(&result);
             Ok(())
         }
         ImportSource::GitAliases { config: cfg } => {
@@ -704,10 +717,7 @@ fn cmd_import(source: ImportSource) -> Result<()> {
 
             let git_output = String::from_utf8_lossy(&output.stdout);
             let result = import::import_git_aliases(&git_output, &config_path)?;
-            eprintln!("✓ imported {} abbreviation(s)", result.imported);
-            for s in &result.skipped {
-                eprintln!("  ⚠ skipped: {}", s);
-            }
+            print_import_result(&result);
             Ok(())
         }
     }

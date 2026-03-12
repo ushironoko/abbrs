@@ -94,7 +94,12 @@ pub fn import_fish(content: &str, config_path: &Path) -> Result<ImportResult> {
                     context_rbuffer: None,
                 };
                 match add::append_to_config(config_path, &params) {
-                    Ok(()) => result.imported += 1,
+                    Ok(()) => {
+                        result.imported += 1;
+                        if attrs.is_function {
+                            result.function_count += 1;
+                        }
+                    }
                     Err(e) => result.skipped.push(format!("{} ({})", line, e)),
                 }
             }
@@ -309,7 +314,12 @@ pub fn import_git_aliases(
                     context_rbuffer: None,
                 };
                 match add::append_to_config(config_path, &params) {
-                    Ok(()) => result.imported += 1,
+                    Ok(()) => {
+                        result.imported += 1;
+                        if evaluate {
+                            result.evaluate_count += 1;
+                        }
+                    }
                     Err(e) => result.skipped.push(format!("{} ({})", line, e)),
                 }
             } else {
@@ -332,6 +342,10 @@ pub fn export(config_path: &Path) -> Result<Vec<String>> {
 pub struct ImportResult {
     pub imported: usize,
     pub skipped: Vec<String>,
+    /// Number of imported abbreviations with `evaluate = true` (shell command execution)
+    pub evaluate_count: usize,
+    /// Number of imported abbreviations with `function = true` (shell function call)
+    pub function_count: usize,
 }
 
 #[cfg(test)]
@@ -484,9 +498,23 @@ mod tests {
         let fish_content = "abbr -a g git\nabbr -a gc 'git commit'\n";
         let result = import_fish(fish_content, &path).unwrap();
         assert_eq!(result.imported, 2);
+        assert_eq!(result.function_count, 0);
+        assert_eq!(result.evaluate_count, 0);
 
         let cfg = config::load(&path).unwrap();
         assert_eq!(cfg.abbr.len(), 2);
+    }
+
+    #[test]
+    fn test_import_fish_function_count_mixed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = setup_config(&dir);
+
+        let fish_content = "abbr -a g git\nabbr -a --function my_func -- mf\nabbr -a gc 'git commit'\n";
+        let result = import_fish(fish_content, &path).unwrap();
+        assert_eq!(result.imported, 3);
+        assert_eq!(result.function_count, 1);
+        assert_eq!(result.evaluate_count, 0);
     }
 
     #[test]
@@ -497,6 +525,8 @@ mod tests {
         let git_output = "alias.co checkout\nalias.ci commit\nalias.st status\n";
         let result = import_git_aliases(git_output, &path).unwrap();
         assert_eq!(result.imported, 3);
+        assert_eq!(result.evaluate_count, 0);
+        assert_eq!(result.function_count, 0);
 
         let cfg = config::load(&path).unwrap();
         assert_eq!(cfg.abbr.len(), 3);
@@ -511,6 +541,7 @@ mod tests {
         let git_output = "alias.lg !git log --oneline\n";
         let result = import_git_aliases(git_output, &path).unwrap();
         assert_eq!(result.imported, 1);
+        assert_eq!(result.evaluate_count, 1);
 
         let cfg = config::load(&path).unwrap();
         assert!(cfg.abbr[0].evaluate);
@@ -567,6 +598,7 @@ global = true
         let fish_content = "abbr -a --function my_func -- mf\n";
         let result = import_fish(fish_content, &path).unwrap();
         assert_eq!(result.imported, 1);
+        assert_eq!(result.function_count, 1);
 
         let cfg = config::load(&path).unwrap();
         assert_eq!(cfg.abbr[0].keyword, "mf");
