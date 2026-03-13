@@ -10,12 +10,28 @@ pub struct Config {
     pub abbr: Vec<Abbreviation>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Settings {
     #[serde(default)]
     pub prefixes: Vec<String>,
     #[serde(default)]
     pub remind: bool,
+    #[serde(default = "default_true")]
+    pub serve: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            prefixes: Vec::new(),
+            remind: false,
+            serve: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -331,5 +347,33 @@ function = true
         };
         assert!(config.settings.prefixes.is_empty());
         assert!(!config.settings.remind);
+        assert!(config.settings.serve);
+    }
+
+    #[test]
+    fn test_parse_serve_disabled() {
+        let toml = r#"
+[settings]
+serve = false
+
+[[abbr]]
+keyword = "g"
+expansion = "git"
+"#;
+        let config = parse(toml).unwrap();
+        assert!(!config.settings.serve);
+    }
+
+    #[test]
+    fn test_parse_serve_default_true() {
+        let toml = r#"
+[settings]
+
+[[abbr]]
+keyword = "g"
+expansion = "git"
+"#;
+        let config = parse(toml).unwrap();
+        assert!(config.settings.serve);
     }
 }

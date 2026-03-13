@@ -880,6 +880,7 @@ mod tests {
         let settings = CachedSettings {
             remind: true,
             prefixes: vec![],
+            ..Default::default()
         };
         let (state, _dir) = create_test_state(&abbrs, settings);
         let mut buf = Vec::new();
@@ -899,6 +900,7 @@ mod tests {
         let settings = CachedSettings {
             remind: true,
             prefixes: vec![],
+            ..Default::default()
         };
         let (state, _dir) = create_test_state(&abbrs, settings);
         let mut buf = Vec::new();
@@ -918,6 +920,7 @@ mod tests {
         let settings = CachedSettings {
             remind: false,
             prefixes: vec![],
+            ..Default::default()
         };
         let (state, _dir) = create_test_state(&abbrs, settings);
         let mut buf = Vec::new();

@@ -446,11 +446,11 @@ else
   zle -N zle-line-pre-redraw _abbrs_check_cycling
 fi
 
-# Start serve process on load (socket mode if zsocket available, otherwise per-process fallback)
-if zmodload zsh/net/socket 2>/dev/null; then
+# Start serve process on load (socket mode if zsocket available and serve enabled)
+if zmodload zsh/net/socket 2>/dev/null && $_ABBRS_BIN _serve-enabled 2>/dev/null; then
   _abbrs_start_serve
 else
-  # zsocket not available — per-process fallback only (no background daemon)
+  # zsocket not available or serve disabled — per-process fallback only (no background daemon)
   # _abbrs_request will always fail, so widgets fall through to _abbrs_*_fallback
   :
 fi

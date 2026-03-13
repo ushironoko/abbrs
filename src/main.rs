@@ -218,6 +218,14 @@ enum Commands {
         config: Option<PathBuf>,
     },
 
+    /// Check if serve mode is enabled in config (internal use)
+    #[command(hide = true, name = "_serve-enabled")]
+    ServeEnabled {
+        /// Config file path
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+
     /// Start long-running serve mode (pipe or socket communication)
     Serve {
         /// Unix domain socket path (if omitted, uses stdin/stdout pipe mode)
@@ -341,6 +349,7 @@ fn main() -> Result<()> {
         Commands::Import { source } => cmd_import(source),
         Commands::Export { config: cfg } => cmd_export(cfg),
         Commands::ListKeywords { config: cfg } => cmd_list_keywords(cfg),
+        Commands::ServeEnabled { config: cfg } => cmd_serve_enabled(cfg),
         Commands::Serve { socket, cache, config } => match socket {
             Some(sock_path) => serve::run_socket(sock_path, cache, config),
             None => serve::run(cache, config),
@@ -737,6 +746,20 @@ fn cmd_list_keywords(cfg: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+fn cmd_serve_enabled(cfg: Option<PathBuf>) -> Result<()> {
+    let config_path = resolve_config_path(cfg)?;
+    if !config_path.exists() {
+        // No config file — default is serve enabled
+        std::process::exit(0);
+    }
+    let cfg = config::load(&config_path)?;
+    if cfg.settings.serve {
+        std::process::exit(0);
+    } else {
+        std::process::exit(1);
+    }
+}
+
 fn cmd_export(cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
     require_config(&config_path)?;
@@ -794,6 +817,7 @@ fn cmd_init_config() -> Result<()> {
 # See: https://github.com/ushironoko/abbrs
 
 [settings]
+# serve = true  # enable daemon mode for sub-millisecond latency (default: true)
 # prefixes = ["sudo", "doas"]  # commands that preserve command position
 # remind = false  # remind when abbreviation could have been used
 

@@ -6,13 +6,14 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 /// Cache format version
-const CACHE_VERSION: u32 = 4;
+const CACHE_VERSION: u32 = 5;
 
 /// Cached settings (stored in cache for expand-time access)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CachedSettings {
     pub remind: bool,
     pub prefixes: Vec<String>,
+    pub serve: bool,
 }
 
 /// Binary cache
@@ -152,6 +153,7 @@ expansion = "git"
         let settings = CachedSettings {
             remind: true,
             prefixes: vec!["sudo".to_string(), "doas".to_string()],
+            ..Default::default()
         };
         write(&cache_path, &matcher, &settings, &config_path).unwrap();
 
