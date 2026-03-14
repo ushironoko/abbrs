@@ -83,6 +83,22 @@ else
   zshexit() { _abbrs_stop_serve }
 fi
 
+# Re-evaluate settings.serve after config recompilation.
+# Starts or stops the daemon so the setting takes effect without restarting the shell.
+_abbrs_refresh_serve() {
+  if $_ABBRS_BIN _serve-enabled 2>/dev/null; then
+    if (( ! _ABBRS_SERVE_ENABLED )); then
+      _ABBRS_SERVE_ENABLED=1
+      zmodload zsh/net/socket 2>/dev/null && _abbrs_start_serve
+    fi
+  else
+    if (( _ABBRS_SERVE_ENABLED )); then
+      _ABBRS_SERVE_ENABLED=0
+      _abbrs_stop_serve
+    fi
+  fi
+}
+
 # --- Socket communication ---
 
 typeset -ga _abbrs_reply
@@ -134,6 +150,7 @@ _abbrs_expand_fallback() {
 
   if [[ $out[1] == stale_cache ]]; then
     $_ABBRS_BIN compile 2>/dev/null
+    _abbrs_refresh_serve
     out=( "${(f)$($_ABBRS_BIN expand --lbuffer="$LBUFFER" --rbuffer="$RBUFFER")}" )
   fi
 
@@ -316,6 +333,7 @@ _abbrs_expand_with_fallback() {
   if _abbrs_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
     if [[ ${_abbrs_reply[1]} == stale_cache ]]; then
       $_ABBRS_BIN compile 2>/dev/null
+      _abbrs_refresh_serve
       _abbrs_request "reload"
       if _abbrs_request $'expand\t'"${LBUFFER}"$'\t'"${RBUFFER}"; then
         "$handler" "${_abbrs_reply[@]}"
