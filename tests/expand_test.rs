@@ -204,6 +204,27 @@ fn test_expand_missing_cache() {
 }
 
 #[test]
+fn test_expand_both_config_and_cache_absent() {
+    // When both config and cache are missing, expand should return no_match
+    // (not stale_cache) to avoid triggering repeated recompile attempts.
+    abbrs_cmd()
+        .args([
+            "expand",
+            "--lbuffer",
+            "g",
+            "--rbuffer",
+            "",
+            "--cache",
+            "/nonexistent/abbrs.cache",
+            "--config",
+            "/nonexistent/abbrs.toml",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("no_match"));
+}
+
+#[test]
 fn test_next_placeholder() {
     abbrs_cmd()
         .args([
