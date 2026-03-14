@@ -1,36 +1,35 @@
 use crate::matcher::{AbbrScope, CompiledAbbr};
 use regex::Regex;
 use rustc_hash::FxHashMap;
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 /// Lazy regex cache that compiles patterns on first use.
 /// Only the patterns actually needed for the current expansion are compiled,
 /// avoiding the cost of eagerly compiling all patterns on every CLI invocation.
 #[derive(Debug)]
 pub struct RegexCache {
-    cache: RefCell<FxHashMap<String, Regex>>,
+    cache: Mutex<FxHashMap<String, Regex>>,
 }
 
 impl RegexCache {
     /// Create an empty lazy regex cache.
     pub fn new() -> Self {
         Self {
-            cache: RefCell::new(FxHashMap::default()),
+            cache: Mutex::new(FxHashMap::default()),
         }
     }
 
     /// Check if `pattern` matches `text`. Compiles and caches the regex on first use.
     /// Returns `None` if the regex pattern is invalid.
     pub fn is_match(&self, pattern: &str, text: &str) -> Option<bool> {
-        let cache = self.cache.borrow();
+        let mut cache = self.cache.lock().unwrap();
         if let Some(re) = cache.get(pattern) {
             return Some(re.is_match(text));
         }
-        drop(cache);
 
         let re = Regex::new(pattern).ok()?;
         let result = re.is_match(text);
-        self.cache.borrow_mut().insert(pattern.to_string(), re);
+        cache.insert(pattern.to_string(), re);
         Some(result)
     }
 }

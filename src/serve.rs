@@ -151,6 +151,11 @@ impl ServeState {
                     if fresh {
                         self.compiled = Some(c);
                         self.config_mtime = current_mtime;
+                        // Refresh history settings from config on hot-reload
+                        if let Ok(cfg) = crate::config::load(&self.config_path) {
+                            self.history_enabled = cfg.settings.history;
+                            self.history_limit = cfg.settings.history_limit;
+                        }
                         return true;
                     }
                 }
@@ -196,10 +201,14 @@ fn flush_history_buffer(state: &mut ServeState) {
     if state.history_buffer.is_empty() {
         return;
     }
-    if let Err(e) = history::flush_batch(&state.history_path, &state.history_buffer) {
-        eprintln!("abbrs serve: failed to flush history: {}", e);
+    match history::flush_batch(&state.history_path, &state.history_buffer) {
+        Ok(()) => {
+            state.history_buffer.clear();
+        }
+        Err(e) => {
+            eprintln!("abbrs serve: failed to flush history (retaining buffer): {}", e);
+        }
     }
-    state.history_buffer.clear();
 }
 
 fn handle_history<W: Write>(state: &mut ServeState, limit: usize, writer: &mut W) -> std::io::Result<()> {
@@ -303,6 +312,61 @@ fn resolve_paths(
     Ok((cache_file, cfg_path))
 }
 
+/// Process a single parsed request against state and write the response.
+fn process_request<W: Write>(
+    state: &mut ServeState,
+    request: &Request,
+    writer: &mut W,
+) -> std::io::Result<()> {
+    match request {
+        Request::Expand { lbuffer, rbuffer } => {
+            let result = handle_expand(state, lbuffer, rbuffer);
+
+            // Record history using the exact matched expansion (not re-derived)
+            if state.history_enabled {
+                if let Some(expansion) = &result.matched_expansion {
+                    if let Some((_, keyword)) = expand::extract_keyword(lbuffer) {
+                        state.history_buffer.push(HistoryEntry::new(keyword.to_string(), expansion.clone()));
+                        if state.history_buffer.len() >= HISTORY_FLUSH_THRESHOLD {
+                            flush_history_buffer(state);
+                        }
+                    }
+                }
+            }
+
+            write_response(writer, &result.output.to_string())
+        }
+        Request::Placeholder { lbuffer, rbuffer } => {
+            handle_placeholder(lbuffer, rbuffer, writer)
+        }
+        Request::Remind { buffer } => {
+            handle_remind(state, buffer, writer)
+        }
+        Request::History { limit } => {
+            handle_history(state, *limit, writer)
+        }
+        Request::FlushHistory => {
+            flush_history_buffer(state);
+            write_response(writer, "ok")
+        }
+        Request::ClearHistory => {
+            state.history_buffer.clear();
+            let _ = history::clear(&state.history_path);
+            write_response(writer, "ok")
+        }
+        Request::Reload => {
+            flush_history_buffer(state);
+            // Re-read history settings from config on reload
+            if let Ok(cfg) = crate::config::load(&state.config_path) {
+                state.history_enabled = cfg.settings.history;
+                state.history_limit = cfg.settings.history_limit;
+            }
+            handle_reload(state, writer)
+        }
+        Request::Ping => handle_ping(writer),
+    }
+}
+
 fn serve_connection<R: BufRead, W: Write>(
     state: &mut ServeState,
     reader: R,
@@ -341,53 +405,7 @@ fn serve_connection<R: BufRead, W: Write>(
             }
         };
 
-        let result = match request {
-            Request::Expand { ref lbuffer, ref rbuffer } => {
-                let result = handle_expand(state, lbuffer, rbuffer);
-
-                // Record history using the exact matched expansion (not re-derived)
-                if state.history_enabled {
-                    if let Some(expansion) = &result.matched_expansion {
-                        if let Some((_, keyword)) = expand::extract_keyword(lbuffer) {
-                            state.history_buffer.push(HistoryEntry::new(keyword.to_string(), expansion.clone()));
-                            if state.history_buffer.len() >= HISTORY_FLUSH_THRESHOLD {
-                                flush_history_buffer(state);
-                            }
-                        }
-                    }
-                }
-
-                write_response(writer, &result.output.to_string())
-            }
-            Request::Placeholder { lbuffer, rbuffer } => {
-                handle_placeholder(&lbuffer, &rbuffer, writer)
-            }
-            Request::Remind { buffer } => {
-                handle_remind(state, &buffer, writer)
-            }
-            Request::History { limit } => {
-                handle_history(state, limit, writer)
-            }
-            Request::FlushHistory => {
-                flush_history_buffer(state);
-                write_response(writer, "ok")
-            }
-            Request::ClearHistory => {
-                state.history_buffer.clear();
-                let _ = history::clear(&state.history_path);
-                write_response(writer, "ok")
-            }
-            Request::Reload => {
-                flush_history_buffer(state);
-                // Re-read history settings from config on reload
-                if let Ok(cfg) = crate::config::load(&state.config_path) {
-                    state.history_enabled = cfg.settings.history;
-                    state.history_limit = cfg.settings.history_limit;
-                }
-                handle_reload(state, writer)
-            }
-            Request::Ping => handle_ping(writer),
-        };
+        let result = process_request(state, &request, writer);
 
         if let Err(e) = result {
             if e.kind() == std::io::ErrorKind::BrokenPipe {
@@ -399,6 +417,69 @@ fn serve_connection<R: BufRead, W: Write>(
 
     // Flush remaining history buffer on disconnect
     flush_history_buffer(state);
+
+    Ok(())
+}
+
+/// Serve a single connection using shared state (for multi-threaded socket mode).
+/// Locks the mutex per-request so other connections can interleave.
+fn serve_connection_shared<R: BufRead, W: Write>(
+    state: &std::sync::Arc<std::sync::Mutex<ServeState>>,
+    reader: R,
+    writer: &mut W,
+) -> Result<()> {
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                    break;
+                }
+                eprintln!("abbrs serve: read error: {}", e);
+                continue;
+            }
+        };
+
+        if line.is_empty() {
+            continue;
+        }
+
+        let request = match parse_request(&line) {
+            Ok(r) => r,
+            Err(e) => {
+                let result = write_response(
+                    writer,
+                    &format!("error\t{}", e),
+                );
+                if let Err(write_err) = result {
+                    if write_err.kind() == std::io::ErrorKind::BrokenPipe {
+                        break;
+                    }
+                    eprintln!("abbrs serve: write error: {}", write_err);
+                }
+                continue;
+            }
+        };
+
+        // Lock state only for the duration of request processing.
+        // Between requests (while waiting for the next line), the lock is released,
+        // allowing other connections (e.g. notify_all_daemons) to be served.
+        let result = {
+            let mut state = state.lock().unwrap();
+            process_request(&mut state, &request, writer)
+        };
+
+        if let Err(e) = result {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                break;
+            }
+            eprintln!("abbrs serve: write error: {}", e);
+        }
+    }
+
+    // Flush remaining history buffer on disconnect
+    let mut state = state.lock().unwrap();
+    flush_history_buffer(&mut state);
 
     Ok(())
 }
@@ -483,6 +564,7 @@ pub fn run_socket(
 ) -> Result<()> {
     use std::os::unix::fs::FileTypeExt;
     use std::os::unix::net::{UnixListener, UnixStream};
+    use std::sync::{Arc, Mutex};
 
     let (cache_file, cfg_path) = resolve_paths(cache_path, config_path)?;
 
@@ -525,6 +607,12 @@ pub fn run_socket(
         let _ = history::compact(&state.history_path, state.history_limit);
     }
 
+    // Wrap state in Arc<Mutex> for concurrent connection handling.
+    // This allows notify_all_daemons() to reach the daemon even while
+    // a shell connection is active, by serving each connection in its
+    // own thread with per-request locking.
+    let state = Arc::new(Mutex::new(state));
+
     for stream in listener.incoming() {
         let stream = match stream {
             Ok(s) => s,
@@ -533,13 +621,20 @@ pub fn run_socket(
                 continue;
             }
         };
-        let reader = BufReader::new(stream.try_clone()?);
-        let mut writer = LineWriter::new(stream);
-        if let Err(e) = serve_connection(&mut state, reader, &mut writer) {
-            eprintln!("abbrs serve: connection error: {}", e);
-        }
-        // EOF → accept next connection (reconnect support)
-        // state is preserved across connections (RegexCache reuse etc.)
+        let state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            let reader = match stream.try_clone() {
+                Ok(s) => BufReader::new(s),
+                Err(e) => {
+                    eprintln!("abbrs serve: clone error: {}", e);
+                    return;
+                }
+            };
+            let mut writer = LineWriter::new(stream);
+            if let Err(e) = serve_connection_shared(&state, reader, &mut writer) {
+                eprintln!("abbrs serve: connection error: {}", e);
+            }
+        });
     }
 
     let _ = std::fs::remove_file(&socket_path);
