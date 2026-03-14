@@ -27,6 +27,8 @@ typeset -g  _ABBRS_CYCLE_INDEX=0
 typeset -g  _ABBRS_CYCLE_LPREFIX=""
 typeset -g  _ABBRS_CYCLE_RBUFFER=""
 typeset -g  _ABBRS_CYCLE_ORIG_TOKEN=""
+typeset -g  _ABBRS_PAGE_SIZE=0
+typeset -g  _ABBRS_CYCLE_PAGE=1
 
 _abbrs_start_serve() {
   # Don't start daemon if zsocket is unavailable
@@ -158,18 +160,29 @@ _abbrs_clear_candidates() {
     _ABBRS_CYCLE_LPREFIX=""
     _ABBRS_CYCLE_RBUFFER=""
     _ABBRS_CYCLE_ORIG_TOKEN=""
+    _ABBRS_PAGE_SIZE=0
+    _ABBRS_CYCLE_PAGE=1
     zle -M ""
   fi
 }
 
 _abbrs_cycle_next() {
   (( _ABBRS_CYCLE_INDEX = (_ABBRS_CYCLE_INDEX % $#_ABBRS_CANDIDATES) + 1 ))
+  _abbrs_update_page
   _abbrs_apply_cycle
 }
 
 _abbrs_cycle_prev() {
   (( _ABBRS_CYCLE_INDEX = (_ABBRS_CYCLE_INDEX - 2 + $#_ABBRS_CANDIDATES) % $#_ABBRS_CANDIDATES + 1 ))
+  _abbrs_update_page
   _abbrs_apply_cycle
+}
+
+_abbrs_update_page() {
+  local ps=$_ABBRS_PAGE_SIZE
+  if (( ps > 0 )); then
+    _ABBRS_CYCLE_PAGE=$(( (_ABBRS_CYCLE_INDEX - 1) / ps + 1 ))
+  fi
 }
 
 _abbrs_apply_cycle() {
@@ -178,20 +191,47 @@ _abbrs_apply_cycle() {
 
   LBUFFER="${_ABBRS_CYCLE_LPREFIX}${kw}"
   RBUFFER="$_ABBRS_CYCLE_RBUFFER"
+  _abbrs_show_candidates_page
+}
 
+_abbrs_show_candidates_page() {
+  local total=$#_ABBRS_CANDIDATES
+  local ps=$_ABBRS_PAGE_SIZE
   local msg="" i
-  for (( i=1; i <= $#_ABBRS_CANDIDATES; i++ )); do
-    local ckw="${_ABBRS_CANDIDATES[$i]%%	*}"
-    local cexp="${_ABBRS_CANDIDATES[$i]#*	}"
-    if (( i > 1 )); then
-      msg+=$'\n'
-    fi
+
+  # page_size=0 or candidates fit in one page → show all (original behavior)
+  if (( ps <= 0 || total <= ps )); then
+    for (( i=1; i <= total; i++ )); do
+      local kw="${_ABBRS_CANDIDATES[$i]%%	*}"
+      local exp="${_ABBRS_CANDIDATES[$i]#*	}"
+      (( i > 1 )) && msg+=$'\n'
+      if (( i == _ABBRS_CYCLE_INDEX )); then
+        msg+="▸ ${kw} → ${exp}"
+      else
+        msg+="  ${kw} → ${exp}"
+      fi
+    done
+    zle -M "$msg"
+    return
+  fi
+
+  # Paginated display
+  local total_pages=$(( (total + ps - 1) / ps ))
+  local page_start=$(( (_ABBRS_CYCLE_PAGE - 1) * ps + 1 ))
+  local page_end=$(( _ABBRS_CYCLE_PAGE * ps ))
+  (( page_end > total )) && page_end=$total
+
+  for (( i=page_start; i <= page_end; i++ )); do
+    local kw="${_ABBRS_CANDIDATES[$i]%%	*}"
+    local exp="${_ABBRS_CANDIDATES[$i]#*	}"
+    (( i > page_start )) && msg+=$'\n'
     if (( i == _ABBRS_CYCLE_INDEX )); then
-      msg+="▸ ${ckw} → ${cexp}"
+      msg+="▸ ${kw} → ${exp}"
     else
-      msg+="  ${ckw} → ${cexp}"
+      msg+="  ${kw} → ${exp}"
     fi
   done
+  msg+=$'\n'"  [${_ABBRS_CYCLE_PAGE}/${total_pages}]"
   zle -M "$msg"
 }
 
@@ -236,9 +276,11 @@ _abbrs_handle_expand_response() {
       ;;
     candidates)
       local count=$out[2]
+      local page_sz=$out[3]
+      _ABBRS_PAGE_SIZE=$page_sz
       _ABBRS_CANDIDATES=()
       local i
-      for (( i=3; i <= count + 2; i++ )); do
+      for (( i=4; i <= count + 3; i++ )); do
         _ABBRS_CANDIDATES+=( "$out[$i]" )
       done
 
@@ -253,17 +295,8 @@ _abbrs_handle_expand_response() {
       _ABBRS_CYCLE_RBUFFER="$RBUFFER"
       _ABBRS_CYCLING=1
       _ABBRS_CYCLE_INDEX=0
-
-      local msg=""
-      for (( i=1; i <= $#_ABBRS_CANDIDATES; i++ )); do
-        local kw="${_ABBRS_CANDIDATES[$i]%%	*}"
-        local exp="${_ABBRS_CANDIDATES[$i]#*	}"
-        if (( i > 1 )); then
-          msg+=$'\n'
-        fi
-        msg+="  ${kw} → ${exp}"
-      done
-      zle -M "$msg"
+      _ABBRS_CYCLE_PAGE=1
+      _abbrs_show_candidates_page
       ;;
     *)
       zle self-insert

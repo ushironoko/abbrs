@@ -1,7 +1,7 @@
 use crate::cache::{self, CompiledCache};
 use crate::context::RegexCache;
 use crate::expand::{self, ExpandInput};
-use crate::output::PlaceholderOutput;
+use crate::output::{self, PlaceholderOutput};
 use crate::placeholder;
 use anyhow::Result;
 use std::io::{BufRead, BufReader, LineWriter, Write};
@@ -159,7 +159,7 @@ fn handle_expand<W: Write>(state: &mut ServeState, lbuffer: &str, rbuffer: &str,
         rbuffer: rbuffer.to_string(),
     };
     let result = expand::expand(&input, &compiled.matcher, &compiled.settings.prefixes, &state.regex_cache);
-    write_response(writer, &result.to_string())
+    write_response(writer, &output::format_expand_output(&result, compiled.settings.page_size))
 }
 
 fn handle_placeholder<W: Write>(lbuffer: &str, rbuffer: &str, writer: &mut W) -> std::io::Result<()> {
@@ -717,6 +717,7 @@ mod tests {
         assert_snapshot!(response_body(&buf), @r"
         candidates
         3
+        0
         gc	git commit
         gd	git diff
         gp	git push
@@ -738,6 +739,7 @@ mod tests {
         assert_snapshot!(response_body(&buf), @r"
         candidates
         1
+        0
         gc	git commit
         ");
     }

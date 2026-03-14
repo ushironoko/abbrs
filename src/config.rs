@@ -22,6 +22,8 @@ pub struct Settings {
     pub remind: bool,
     #[serde(default = "default_true")]
     pub serve: bool,
+    #[serde(default)]
+    pub page_size: Option<usize>,
 }
 
 impl Default for Settings {
@@ -30,6 +32,7 @@ impl Default for Settings {
             prefixes: Vec::new(),
             remind: false,
             serve: true,
+            page_size: None,
         }
     }
 }
@@ -348,6 +351,7 @@ function = true
         assert!(config.settings.prefixes.is_empty());
         assert!(!config.settings.remind);
         assert!(config.settings.serve);
+        assert!(config.settings.page_size.is_none());
     }
 
     #[test]
@@ -375,5 +379,32 @@ expansion = "git"
 "#;
         let config = parse(toml).unwrap();
         assert!(config.settings.serve);
+    }
+
+    #[test]
+    fn test_parse_page_size() {
+        let toml = r#"
+[settings]
+page_size = 5
+
+[[abbr]]
+keyword = "g"
+expansion = "git"
+"#;
+        let config = parse(toml).unwrap();
+        assert_eq!(config.settings.page_size, Some(5));
+    }
+
+    #[test]
+    fn test_parse_page_size_default_none() {
+        let toml = r#"
+[settings]
+
+[[abbr]]
+keyword = "g"
+expansion = "git"
+"#;
+        let config = parse(toml).unwrap();
+        assert!(config.settings.page_size.is_none());
     }
 }
