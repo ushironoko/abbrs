@@ -441,7 +441,7 @@ fn cmd_expand(
     let regex_cache = context::RegexCache::new();
     let input = expand::ExpandInput { lbuffer, rbuffer };
     let result = expand::expand(&input, &compiled.matcher, &compiled.settings.prefixes, &regex_cache);
-    println!("{}", result);
+    println!("{}", result.output);
 
     Ok(())
 }
@@ -893,6 +893,9 @@ fn cmd_history(action: HistoryAction) -> Result<()> {
 
     match action {
         HistoryAction::List { limit, config: cfg } => {
+            // Flush all running daemon buffers so the file is up to date
+            serve::notify_all_daemons("flush_history");
+
             let config_path = resolve_config_path(cfg)?;
             let max_limit = if config_path.exists() {
                 config::load(&config_path)
@@ -922,6 +925,8 @@ fn cmd_history(action: HistoryAction) -> Result<()> {
             Ok(())
         }
         HistoryAction::Clear => {
+            // Clear all running daemon buffers and the file
+            serve::notify_all_daemons("clear_history");
             history::clear(&history_path)?;
             eprintln!("✓ expansion history cleared");
             Ok(())

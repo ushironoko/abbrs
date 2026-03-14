@@ -2,11 +2,27 @@ use crate::context::{self, RegexCache};
 use crate::matcher::{self, CompiledAbbr, ExpandAction, Matcher};
 use crate::output::{CandidateEntry, ExpandOutput};
 use crate::placeholder;
+use std::fmt;
 
 /// Expansion input
 pub struct ExpandInput {
     pub lbuffer: String,
     pub rbuffer: String,
+}
+
+/// Result of an expansion attempt, including matched abbreviation info for history recording
+pub struct ExpandResult {
+    /// The expansion output (for protocol display)
+    pub output: ExpandOutput,
+    /// The raw expansion text from the matched abbreviation (for history recording).
+    /// None for NoMatch, Candidates, StaleCache.
+    pub matched_expansion: Option<String>,
+}
+
+impl fmt::Display for ExpandResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.output.fmt(f)
+    }
 }
 
 /// Extract keyword from lbuffer
@@ -99,9 +115,9 @@ pub fn expand(
     matcher_data: &Matcher,
     prefixes: &[String],
     regex_cache: &RegexCache,
-) -> ExpandOutput {
+) -> ExpandResult {
     let Some((prefix, keyword)) = extract_keyword(&input.lbuffer) else {
-        return ExpandOutput::NoMatch;
+        return ExpandResult { output: ExpandOutput::NoMatch, matched_expansion: None };
     };
 
     // 1. Search contextual abbreviations (highest priority, skip if none registered)
@@ -113,7 +129,7 @@ pub fn expand(
             &input.rbuffer,
             regex_cache,
         ) {
-            return build_output(prefix, abbr, keyword, &input.rbuffer);
+            return matched_result(prefix, abbr, keyword, &input.rbuffer);
         }
     }
 
@@ -132,7 +148,7 @@ pub fn expand(
             if let Some(ref cmd_name) = cmd {
                 if let Some(abbr) = matcher::lookup_command_scoped(matcher_data, cmd_name, keyword)
                 {
-                    return build_output(prefix, abbr, keyword, &input.rbuffer);
+                    return matched_result(prefix, abbr, keyword, &input.rbuffer);
                 }
             }
         }
@@ -140,7 +156,7 @@ pub fn expand(
         // 3. If in command position (or after prefix), search regular abbreviations
         if is_cmd_pos {
             if let Some(abbr) = matcher::lookup_regular(matcher_data, keyword) {
-                return build_output(prefix, abbr, keyword, &input.rbuffer);
+                return matched_result(prefix, abbr, keyword, &input.rbuffer);
             }
         }
 
@@ -150,7 +166,7 @@ pub fn expand(
         let is_cmd_pos = prefix.trim().is_empty();
         if is_cmd_pos {
             if let Some(abbr) = matcher::lookup_regular(matcher_data, keyword) {
-                return build_output(prefix, abbr, keyword, &input.rbuffer);
+                return matched_result(prefix, abbr, keyword, &input.rbuffer);
             }
         }
         (is_cmd_pos, None)
@@ -158,13 +174,13 @@ pub fn expand(
 
     // 4. Search global abbreviations (regardless of position)
     if let Some(abbr) = matcher::lookup_global(matcher_data, keyword) {
-        return build_output(prefix, abbr, keyword, &input.rbuffer);
+        return matched_result(prefix, abbr, keyword, &input.rbuffer);
     }
 
     // 5. Regex-keyword abbreviations (lazy-compiled regex lookup, linear scan)
     for abbr in &matcher_data.regex_abbrs {
         if regex_cache.is_match(&abbr.keyword, keyword) == Some(true) {
-            return build_output(prefix, abbr, keyword, &input.rbuffer);
+            return matched_result(prefix, abbr, keyword, &input.rbuffer);
         }
     }
 
@@ -176,18 +192,29 @@ pub fn expand(
         current_command.as_deref(),
     );
     if candidates.len() >= 1 {
-        return ExpandOutput::Candidates {
-            candidates: candidates
-                .iter()
-                .map(|abbr| CandidateEntry {
-                    keyword: abbr.keyword.clone(),
-                    expansion: abbr.expansion.clone(),
-                })
-                .collect(),
+        return ExpandResult {
+            output: ExpandOutput::Candidates {
+                candidates: candidates
+                    .iter()
+                    .map(|abbr| CandidateEntry {
+                        keyword: abbr.keyword.clone(),
+                        expansion: abbr.expansion.clone(),
+                    })
+                    .collect(),
+            },
+            matched_expansion: None,
         };
     }
 
-    ExpandOutput::NoMatch
+    ExpandResult { output: ExpandOutput::NoMatch, matched_expansion: None }
+}
+
+/// Build an ExpandResult for a matched abbreviation, capturing expansion info for history
+fn matched_result(prefix: &str, abbr: &CompiledAbbr, keyword: &str, rbuffer: &str) -> ExpandResult {
+    ExpandResult {
+        matched_expansion: Some(abbr.expansion.clone()),
+        output: build_output(prefix, abbr, keyword, rbuffer),
+    }
 }
 
 fn build_output(prefix: &str, abbr: &CompiledAbbr, matched_keyword: &str, rbuffer: &str) -> ExpandOutput {

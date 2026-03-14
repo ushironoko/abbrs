@@ -1,8 +1,7 @@
 use crate::cache::{self, CompiledCache};
 use crate::context::RegexCache;
-use crate::expand::{self, ExpandInput};
+use crate::expand::{self, ExpandInput, ExpandResult};
 use crate::history::{self, HistoryEntry};
-use crate::matcher::Matcher;
 use crate::output::{CandidateEntry, ExpandOutput, PlaceholderOutput};
 use crate::placeholder;
 use anyhow::Result;
@@ -18,6 +17,8 @@ enum Request {
     Placeholder { lbuffer: String, rbuffer: String },
     Remind { buffer: String },
     History { limit: usize },
+    FlushHistory,
+    ClearHistory,
     Reload,
     Ping,
 }
@@ -63,6 +64,8 @@ fn parse_request(line: &str) -> Result<Request> {
                 .unwrap_or(50);
             Ok(Request::History { limit })
         }
+        "flush_history" => Ok(Request::FlushHistory),
+        "clear_history" => Ok(Request::ClearHistory),
         "reload" => Ok(Request::Reload),
         "ping" => Ok(Request::Ping),
         other => anyhow::bail!("unknown command: {}", other),
@@ -170,14 +173,14 @@ fn write_empty_eor<W: Write>(writer: &mut W) -> std::io::Result<()> {
     Ok(())
 }
 
-fn handle_expand(state: &mut ServeState, lbuffer: &str, rbuffer: &str) -> ExpandOutput {
+fn handle_expand(state: &mut ServeState, lbuffer: &str, rbuffer: &str) -> ExpandResult {
     if state.compiled.is_none() {
-        return ExpandOutput::StaleCache;
+        return ExpandResult { output: ExpandOutput::StaleCache, matched_expansion: None };
     }
 
     // Check freshness
     if !state.check_and_reload_if_needed() {
-        return ExpandOutput::StaleCache;
+        return ExpandResult { output: ExpandOutput::StaleCache, matched_expansion: None };
     }
 
     let compiled = state.compiled.as_ref().unwrap();
@@ -187,46 +190,6 @@ fn handle_expand(state: &mut ServeState, lbuffer: &str, rbuffer: &str) -> Expand
         rbuffer: rbuffer.to_string(),
     };
     expand::expand(&input, &compiled.matcher, &compiled.settings.prefixes, &state.regex_cache)
-}
-
-/// Look up the expansion text for a keyword across all matcher indices.
-/// Used for history recording after a successful expand.
-fn find_expansion(matcher: &Matcher, keyword: &str) -> Option<String> {
-    if let Some(abbrs) = matcher.regular.get(keyword) {
-        return abbrs.first().map(|a| a.expansion.clone());
-    }
-    if let Some(abbrs) = matcher.global.get(keyword) {
-        return abbrs.first().map(|a| a.expansion.clone());
-    }
-    for cmd_map in matcher.command_scoped.values() {
-        if let Some(abbrs) = cmd_map.get(keyword) {
-            return abbrs.first().map(|a| a.expansion.clone());
-        }
-    }
-    if let Some(abbrs) = matcher.contextual.get(keyword) {
-        return abbrs.first().map(|a| a.expansion.clone());
-    }
-    None
-}
-
-/// Extract keyword and expansion from a successful ExpandOutput for history recording.
-fn extract_history_info(output: &ExpandOutput, lbuffer: &str, matcher: &Matcher) -> Option<(String, String)> {
-    let (_, keyword) = expand::extract_keyword(lbuffer)?;
-    let keyword = keyword.to_string();
-
-    match output {
-        ExpandOutput::Success { .. } => {
-            let expansion = find_expansion(matcher, &keyword)?;
-            Some((keyword, expansion))
-        }
-        ExpandOutput::Evaluate { command, .. } => {
-            Some((keyword, command.clone()))
-        }
-        ExpandOutput::Function { function_name, .. } => {
-            Some((keyword, function_name.clone()))
-        }
-        _ => None,
-    }
 }
 
 fn flush_history_buffer(state: &mut ServeState) {
@@ -380,13 +343,13 @@ fn serve_connection<R: BufRead, W: Write>(
 
         let result = match request {
             Request::Expand { ref lbuffer, ref rbuffer } => {
-                let output = handle_expand(state, lbuffer, rbuffer);
+                let result = handle_expand(state, lbuffer, rbuffer);
 
-                // Record history for successful expansions
+                // Record history using the exact matched expansion (not re-derived)
                 if state.history_enabled {
-                    if let Some(compiled) = &state.compiled {
-                        if let Some((keyword, expansion)) = extract_history_info(&output, lbuffer, &compiled.matcher) {
-                            state.history_buffer.push(HistoryEntry::new(keyword, expansion));
+                    if let Some(expansion) = &result.matched_expansion {
+                        if let Some((_, keyword)) = expand::extract_keyword(lbuffer) {
+                            state.history_buffer.push(HistoryEntry::new(keyword.to_string(), expansion.clone()));
                             if state.history_buffer.len() >= HISTORY_FLUSH_THRESHOLD {
                                 flush_history_buffer(state);
                             }
@@ -394,7 +357,7 @@ fn serve_connection<R: BufRead, W: Write>(
                     }
                 }
 
-                write_response(writer, &output.to_string())
+                write_response(writer, &result.output.to_string())
             }
             Request::Placeholder { lbuffer, rbuffer } => {
                 handle_placeholder(&lbuffer, &rbuffer, writer)
@@ -404,6 +367,15 @@ fn serve_connection<R: BufRead, W: Write>(
             }
             Request::History { limit } => {
                 handle_history(state, limit, writer)
+            }
+            Request::FlushHistory => {
+                flush_history_buffer(state);
+                write_response(writer, "ok")
+            }
+            Request::ClearHistory => {
+                state.history_buffer.clear();
+                let _ = history::clear(&state.history_path);
+                write_response(writer, "ok")
             }
             Request::Reload => {
                 flush_history_buffer(state);
@@ -572,6 +544,55 @@ pub fn run_socket(
 
     let _ = std::fs::remove_file(&socket_path);
     Ok(())
+}
+
+/// Get the default socket directory path (matches zsh widget convention).
+pub fn default_socket_dir() -> PathBuf {
+    let uid = unsafe { libc::getuid() };
+    let tmpdir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
+    PathBuf::from(format!("{}/abbrs-{}", tmpdir, uid))
+}
+
+/// Send a command to a single daemon socket and wait for the response.
+fn send_to_daemon(socket_path: &std::path::Path, command: &str) -> Result<()> {
+    use std::os::unix::net::UnixStream;
+
+    let stream = UnixStream::connect(socket_path)?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
+
+    let read_stream = stream.try_clone()?;
+    let mut writer = LineWriter::new(stream);
+    writeln!(writer, "{}", command)?;
+    writer.flush()?;
+
+    // Read until EOR
+    let reader = BufReader::new(read_stream);
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with('\x1e') {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+/// Send a command to all active daemon sockets in the socket directory.
+/// Silently ignores connection failures (stale sockets, etc.).
+pub fn notify_all_daemons(command: &str) {
+    let sock_dir = default_socket_dir();
+    if !sock_dir.exists() {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(&sock_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "sock") {
+                let _ = send_to_daemon(&path, command);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
