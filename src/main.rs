@@ -441,7 +441,7 @@ fn cmd_expand(
     let regex_cache = context::RegexCache::new();
     let input = expand::ExpandInput { lbuffer, rbuffer };
     let result = expand::expand(&input, &compiled.matcher, &compiled.settings.prefixes, &regex_cache);
-    println!("{}", result.output);
+    println!("{}", output::format_expand_output(&result.output, compiled.settings.page_size));
 
     Ok(())
 }
@@ -843,6 +843,7 @@ fn cmd_init_config() -> Result<()> {
 # serve = true  # enable daemon mode for sub-millisecond latency (default: true)
 # prefixes = ["sudo", "doas"]  # commands that preserve command position
 # remind = false  # remind when abbreviation could have been used
+# page_size = 10  # paginate candidate display (0 or omit = show all)
 
 # Regular abbreviation (expand only at command position)
 [[abbr]]

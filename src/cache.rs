@@ -14,6 +14,7 @@ pub struct CachedSettings {
     pub remind: bool,
     pub prefixes: Vec<String>,
     pub serve: bool,
+    pub page_size: usize,
 }
 
 /// Binary cache
@@ -141,6 +142,7 @@ expansion = "git"
         assert!(loaded.matcher.regex_abbrs.is_empty());
         assert!(!loaded.settings.remind);
         assert!(loaded.settings.prefixes.is_empty());
+        assert_eq!(loaded.settings.page_size, 0);
     }
 
     #[test]
@@ -160,6 +162,23 @@ expansion = "git"
         let loaded = read(&cache_path).unwrap();
         assert!(loaded.settings.remind);
         assert_eq!(loaded.settings.prefixes, vec!["sudo", "doas"]);
+    }
+
+    #[test]
+    fn test_write_and_read_roundtrip_with_page_size() {
+        let dir = TempDir::new().unwrap();
+        let config_path = create_test_config(&dir);
+        let cache_path = dir.path().join("abbrs.cache");
+
+        let matcher = Matcher::new();
+        let settings = CachedSettings {
+            page_size: 5,
+            ..Default::default()
+        };
+        write(&cache_path, &matcher, &settings, &config_path).unwrap();
+
+        let loaded = read(&cache_path).unwrap();
+        assert_eq!(loaded.settings.page_size, 5);
     }
 
     #[test]
