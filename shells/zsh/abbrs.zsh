@@ -88,8 +88,9 @@ fi
 _abbrs_refresh_serve() {
   if $_ABBRS_BIN _serve-enabled 2>/dev/null; then
     if (( ! _ABBRS_SERVE_ENABLED )); then
-      _ABBRS_SERVE_ENABLED=1
-      zmodload zsh/net/socket 2>/dev/null && _abbrs_start_serve
+      if zmodload zsh/net/socket 2>/dev/null && _abbrs_start_serve; then
+        _ABBRS_SERVE_ENABLED=1
+      fi
     fi
   else
     if (( _ABBRS_SERVE_ENABLED )); then
