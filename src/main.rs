@@ -776,8 +776,9 @@ fn cmd_list_keywords(cfg: Option<PathBuf>) -> Result<()> {
 fn cmd_serve_enabled(cfg: Option<PathBuf>) -> Result<()> {
     let config_path = resolve_config_path(cfg)?;
     if !config_path.exists() {
-        // No config file — default is serve enabled
-        std::process::exit(0);
+        // No config file — treat as serve disabled so the shell falls back
+        // to the pure expand path instead of looping compile/reload attempts
+        std::process::exit(1);
     }
     let cfg = config::load(&config_path)?;
     if cfg.settings.serve {
