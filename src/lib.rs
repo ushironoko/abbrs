@@ -5,6 +5,7 @@ pub mod config;
 pub mod conflict;
 pub mod context;
 pub mod expand;
+pub mod history;
 pub mod import;
 pub mod manage;
 pub mod matcher;

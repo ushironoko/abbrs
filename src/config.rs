@@ -22,6 +22,14 @@ pub struct Settings {
     pub remind: bool,
     #[serde(default = "default_true")]
     pub serve: bool,
+    #[serde(default = "default_true")]
+    pub history: bool,
+    #[serde(default = "default_history_limit")]
+    pub history_limit: usize,
+}
+
+fn default_history_limit() -> usize {
+    500
 }
 
 impl Default for Settings {
@@ -30,6 +38,8 @@ impl Default for Settings {
             prefixes: Vec::new(),
             remind: false,
             serve: true,
+            history: true,
+            history_limit: 500,
         }
     }
 }

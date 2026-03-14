@@ -11,7 +11,7 @@ pub struct ExpandInput {
 
 /// Extract keyword from lbuffer
 /// Returns the trailing token (last word delimited by space) of lbuffer as the keyword
-fn extract_keyword(lbuffer: &str) -> Option<(&str, &str)> {
+pub(crate) fn extract_keyword(lbuffer: &str) -> Option<(&str, &str)> {
     let trimmed = lbuffer.trim_end();
     if trimmed.is_empty() {
         return None;
