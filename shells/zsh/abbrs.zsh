@@ -107,7 +107,15 @@ fi
 
 _abbrs_precmd_check() {
   (( $+builtins[zstat] )) || return
-  [[ -f "$_ABBRS_CONFIG_PATH" ]] || return
+
+  if [[ ! -f "$_ABBRS_CONFIG_PATH" ]]; then
+    # Config file was deleted or renamed — detect the transition
+    if [[ -n "$_ABBRS_CONFIG_MTIME" ]]; then
+      _ABBRS_CONFIG_MTIME=""
+      _abbrs_refresh_serve_setting
+    fi
+    return
+  fi
 
   local current_mtime
   current_mtime=$(zstat +mtime "$_ABBRS_CONFIG_PATH" 2>/dev/null) || return
