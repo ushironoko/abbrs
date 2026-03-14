@@ -20,6 +20,18 @@ typeset -g _ABBRS_SERVE_PID=0
 typeset -g _ABBRS_SOCK_FD=""
 typeset -g _ABBRS_SERVE_ENABLED=0
 
+# --- Config mtime tracking for external change detection ---
+# Detects when config is changed and compiled outside this shell.
+zmodload -F zsh/stat b:zstat 2>/dev/null
+typeset -g _ABBRS_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/abbrs/abbrs.toml"
+typeset -g _ABBRS_CONFIG_MTIME=""
+
+_abbrs_update_config_mtime() {
+  if (( $+builtins[zstat] )) && [[ -f "$_ABBRS_CONFIG_PATH" ]]; then
+    _ABBRS_CONFIG_MTIME=$(zstat +mtime "$_ABBRS_CONFIG_PATH" 2>/dev/null)
+  fi
+}
+
 # --- Candidate cycling state ---
 
 typeset -g  _ABBRS_CYCLING=0
@@ -85,9 +97,32 @@ else
   zshexit() { _abbrs_stop_serve }
 fi
 
+# --- Precmd hook: detect external config changes ---
+# When config is modified and compiled outside this shell (another terminal,
+# daemon hot-reload), this hook detects the config mtime change and
+# re-evaluates the serve setting so daemon/fallback mode stays in sync.
+
+_abbrs_precmd_check() {
+  (( $+builtins[zstat] )) || return
+  [[ -f "$_ABBRS_CONFIG_PATH" ]] || return
+
+  local current_mtime
+  current_mtime=$(zstat +mtime "$_ABBRS_CONFIG_PATH" 2>/dev/null) || return
+
+  if [[ "$current_mtime" != "$_ABBRS_CONFIG_MTIME" ]]; then
+    _ABBRS_CONFIG_MTIME="$current_mtime"
+    _abbrs_refresh_serve
+  fi
+}
+
+if (( $+functions[add-zsh-hook] )); then
+  add-zsh-hook precmd _abbrs_precmd_check
+fi
+
 # Re-evaluate settings.serve after config recompilation.
 # Starts or stops the daemon so the setting takes effect without restarting the shell.
 _abbrs_refresh_serve() {
+  _abbrs_update_config_mtime
   if $_ABBRS_BIN _serve-enabled 2>/dev/null; then
     if (( ! _ABBRS_SERVE_ENABLED )); then
       if zmodload zsh/net/socket 2>/dev/null && _abbrs_start_serve; then
@@ -525,6 +560,9 @@ else
   # Fallback for ancient zsh without add-zle-hook-widget
   zle -N zle-line-pre-redraw _abbrs_check_cycling
 fi
+
+# Initialize config mtime tracking
+_abbrs_update_config_mtime
 
 # Start serve process on load (socket mode if zsocket available and serve enabled)
 if zmodload zsh/net/socket 2>/dev/null && $_ABBRS_BIN _serve-enabled 2>/dev/null; then
