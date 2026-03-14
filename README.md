@@ -204,6 +204,7 @@ regex = true
 [settings]
 # prefixes = ["sudo", "doas"]  # commands that preserve command position
 # remind = false  # remind when abbreviation could have been used
+# serve = true  # use persistent daemon mode for sub-100µs latency (set false to use per-process fallback)
 ```
 
 ## Conflict Detection

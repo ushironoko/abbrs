@@ -18,6 +18,7 @@ typeset -g _ABBRS_SOCK_DIR="${TMPDIR:-/tmp}/abbrs-$(id -u)"
 typeset -g _ABBRS_SOCK="${_ABBRS_SOCK_DIR}/abbrs-$$.sock"
 typeset -g _ABBRS_SERVE_PID=0
 typeset -g _ABBRS_SOCK_FD=""
+typeset -g _ABBRS_SERVE_ENABLED=0
 
 # --- Candidate cycling state ---
 
@@ -89,6 +90,11 @@ typeset -ga _abbrs_reply
 _abbrs_request() {
   local request="$1"
   _abbrs_reply=()
+
+  # Serve disabled — always use per-process fallback
+  if (( ! _ABBRS_SERVE_ENABLED )); then
+    return 1
+  fi
 
   # Check if serve process is alive; restart if needed
   if (( _ABBRS_SERVE_PID <= 0 )) || ! kill -0 $_ABBRS_SERVE_PID 2>/dev/null; then
@@ -448,11 +454,12 @@ fi
 
 # Start serve process on load (socket mode if zsocket available and serve enabled)
 if zmodload zsh/net/socket 2>/dev/null && $_ABBRS_BIN _serve-enabled 2>/dev/null; then
+  _ABBRS_SERVE_ENABLED=1
   _abbrs_start_serve
 else
   # zsocket not available or serve disabled — per-process fallback only (no background daemon)
-  # _abbrs_request will always fail, so widgets fall through to _abbrs_*_fallback
-  :
+  # _abbrs_request checks _ABBRS_SERVE_ENABLED and returns 1, so widgets fall through to _abbrs_*_fallback
+  _ABBRS_SERVE_ENABLED=0
 fi
 
 # Zsh completion function
