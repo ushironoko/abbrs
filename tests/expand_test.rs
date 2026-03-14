@@ -268,7 +268,7 @@ expansion = "git diff"
         .assert()
         .success()
         .stdout(predicate::str::starts_with("candidates\n"))
-        .stdout(predicate::str::contains("3\n"))
+        .stdout(predicate::str::contains("3\n0\n"))
         .stdout(predicate::str::contains("gc\tgit commit"))
         .stdout(predicate::str::contains("gp\tgit push"))
         .stdout(predicate::str::contains("gd\tgit diff"));
@@ -311,4 +311,48 @@ expansion = "git push"
         .success()
         .stdout(predicate::str::starts_with("success\n"))
         .stdout(predicate::str::contains("git"));
+}
+
+#[test]
+fn test_expand_prefix_candidates_with_page_size() {
+    let dir = TempDir::new().unwrap();
+    let (config_path, cache_path) = setup_compiled(
+        &dir,
+        r#"
+[settings]
+page_size = 3
+
+[[abbr]]
+keyword = "gc"
+expansion = "git commit"
+
+[[abbr]]
+keyword = "gp"
+expansion = "git push"
+
+[[abbr]]
+keyword = "gd"
+expansion = "git diff"
+"#,
+    );
+
+    abbrs_cmd()
+        .args([
+            "expand",
+            "--lbuffer",
+            "g",
+            "--rbuffer",
+            "",
+            "--cache",
+            cache_path.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("candidates\n"))
+        .stdout(predicate::str::contains("3\n3\n"))
+        .stdout(predicate::str::contains("gc\tgit commit"))
+        .stdout(predicate::str::contains("gp\tgit push"))
+        .stdout(predicate::str::contains("gd\tgit diff"));
 }

@@ -48,6 +48,8 @@ pub fn compile(config_path: &Path, output_path: &Path) -> Result<CompileResult> 
     let settings = cache::CachedSettings {
         remind: cfg.settings.remind,
         prefixes: cfg.settings.prefixes.clone(),
+        serve: cfg.settings.serve,
+        page_size: cfg.settings.page_size.unwrap_or(0),
     };
     cache::write(output_path, &matcher, &settings, config_path)?;
 

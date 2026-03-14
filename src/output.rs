@@ -91,6 +91,30 @@ impl fmt::Display for ExpandOutput {
     }
 }
 
+/// Format ExpandOutput with optional page_size for candidates protocol.
+/// For non-Candidates variants, delegates to Display impl.
+/// For Candidates, inserts page_size as the third line of the protocol.
+pub fn format_expand_output(output: &ExpandOutput, page_size: usize) -> String {
+    match output {
+        ExpandOutput::Candidates { candidates } => {
+            let mut s = String::new();
+            s.push_str("candidates\n");
+            s.push_str(&candidates.len().to_string());
+            s.push('\n');
+            s.push_str(&page_size.to_string());
+            for c in candidates.iter() {
+                s.push('\n');
+                let escaped = c.expansion.replace('\n', "\\n").replace('\t', "\\t");
+                s.push_str(&c.keyword);
+                s.push('\t');
+                s.push_str(&escaped);
+            }
+            s
+        }
+        other => other.to_string(),
+    }
+}
+
 /// Placeholder jump result
 #[derive(Debug)]
 pub enum PlaceholderOutput {
@@ -220,6 +244,61 @@ mod tests {
         gc	git commit -m '{{message}}'
         gp	git push
         gd	git diff
+        ");
+    }
+
+    #[test]
+    fn test_format_expand_output_with_page_size() {
+        let output = ExpandOutput::Candidates {
+            candidates: vec![
+                CandidateEntry {
+                    keyword: "gc".to_string(),
+                    expansion: "git commit".to_string(),
+                },
+                CandidateEntry {
+                    keyword: "gp".to_string(),
+                    expansion: "git push".to_string(),
+                },
+            ],
+        };
+        assert_snapshot!(format_expand_output(&output, 5), @r"
+        candidates
+        2
+        5
+        gc	git commit
+        gp	git push
+        ");
+    }
+
+    #[test]
+    fn test_format_expand_output_page_size_zero() {
+        let output = ExpandOutput::Candidates {
+            candidates: vec![
+                CandidateEntry {
+                    keyword: "gc".to_string(),
+                    expansion: "git commit".to_string(),
+                },
+            ],
+        };
+        assert_snapshot!(format_expand_output(&output, 0), @r"
+        candidates
+        1
+        0
+        gc	git commit
+        ");
+    }
+
+    #[test]
+    fn test_format_expand_output_non_candidates() {
+        let output = ExpandOutput::Success {
+            buffer: "git".to_string(),
+            cursor: 3,
+        };
+        // Non-candidates just delegates to Display
+        assert_snapshot!(format_expand_output(&output, 5), @r"
+        success
+        git
+        3
         ");
     }
 
