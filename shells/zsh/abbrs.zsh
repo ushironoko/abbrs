@@ -112,7 +112,7 @@ _abbrs_precmd_check() {
     # Config file was deleted or renamed — detect the transition
     if [[ -n "$_ABBRS_CONFIG_MTIME" ]]; then
       _ABBRS_CONFIG_MTIME=""
-      _abbrs_refresh_serve_setting
+      _abbrs_refresh_serve
     fi
     return
   fi
