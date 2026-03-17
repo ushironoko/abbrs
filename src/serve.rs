@@ -713,7 +713,7 @@ pub fn notify_all_daemons(command: &str) {
     if let Ok(entries) = std::fs::read_dir(&sock_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "sock") {
+            if path.extension().is_some_and(|ext| ext == "sock") {
                 let _ = send_to_daemon(&path, command);
             }
         }

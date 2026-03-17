@@ -5,6 +5,8 @@
 # --- Binary path (replaced by `abbrs init zsh`) ---
 
 typeset -g _ABBRS_BIN="__ABBRS_BIN__"
+typeset -g _ABBRS_INIT_HASH="__ABBRS_INIT_HASH__"
+typeset -g _ABBRS_INIT_CHECKED=0
 # Fallback: if placeholder was not replaced (e.g. sourced directly), find abbrs in PATH
 if [[ ! -x "$_ABBRS_BIN" ]]; then
   _ABBRS_BIN="${commands[abbrs]:-abbrs}"
@@ -107,6 +109,19 @@ fi
 # re-evaluates the serve setting so daemon/fallback mode stays in sync.
 
 _abbrs_precmd_check() {
+  # One-shot init script hash check (detects zsh script updates across binary upgrades)
+  if (( ! _ABBRS_INIT_CHECKED )); then
+    _ABBRS_INIT_CHECKED=1
+    # Only check when hash placeholder was replaced (hex string, not raw placeholder)
+    if [[ "$_ABBRS_INIT_HASH" == [0-9a-f][0-9a-f]* ]]; then
+      local current_hash
+      current_hash=$($_ABBRS_BIN _init-hash 2>/dev/null)
+      if [[ -n "$current_hash" && "$current_hash" != "$_ABBRS_INIT_HASH" ]]; then
+        print -P "%F{yellow}abbrs:%f init script updated. Run %F{cyan}exec zsh%f to apply." >&2
+      fi
+    fi
+  fi
+
   (( $+builtins[zstat] )) || return
 
   if [[ ! -f "$_ABBRS_CONFIG_PATH" ]]; then

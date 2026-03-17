@@ -456,3 +456,72 @@ fn test_serve_socket_flag_in_help() {
         .success()
         .stdout(predicate::str::contains("--socket"));
 }
+
+#[test]
+fn test_init_hash_outputs_hex_string() {
+    abbrs_cmd()
+        .args(["_init-hash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^[0-9a-f]{8}\n$").unwrap());
+}
+
+#[test]
+fn test_init_hash_hidden_from_help() {
+    abbrs_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("_init-hash").not());
+}
+
+#[test]
+fn test_init_zsh_contains_replaced_hash() {
+    let output = abbrs_cmd()
+        .args(["init", "zsh"])
+        .output()
+        .expect("failed to run abbrs init zsh");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // The placeholder must have been replaced
+    assert!(
+        !stdout.contains("__ABBRS_INIT_HASH__"),
+        "init zsh output must not contain raw placeholder __ABBRS_INIT_HASH__"
+    );
+
+    // Must contain the hash variable assignment
+    assert!(
+        stdout.contains("_ABBRS_INIT_HASH="),
+        "init zsh output must contain _ABBRS_INIT_HASH variable"
+    );
+}
+
+#[test]
+fn test_init_hash_matches_init_zsh_embedded_hash() {
+    // Get hash from _init-hash subcommand
+    let hash_output = abbrs_cmd()
+        .args(["_init-hash"])
+        .output()
+        .expect("failed to run _init-hash");
+    let hash = String::from_utf8(hash_output.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
+
+    // Get init zsh output and extract embedded hash
+    let init_output = abbrs_cmd()
+        .args(["init", "zsh"])
+        .output()
+        .expect("failed to run init zsh");
+    let script = String::from_utf8(init_output.stdout).unwrap();
+
+    // Find _ABBRS_INIT_HASH="<hash>" in the script
+    let expected = format!("_ABBRS_INIT_HASH=\"{}\"", hash);
+    assert!(
+        script.contains(&expected),
+        "init zsh embedded hash must match _init-hash output.\nExpected to find: {}\nHash from _init-hash: {}",
+        expected,
+        hash
+    );
+}

@@ -88,7 +88,7 @@ fn last_command_segment(lbuffer: &str) -> &str {
 
 /// Extract the first command name from a segment
 fn extract_command(segment: &str) -> Option<&str> {
-    segment.trim().split_whitespace().next()
+    segment.split_whitespace().next()
 }
 
 /// Check if the keyword is at command position or after a known prefix
@@ -191,7 +191,7 @@ pub fn expand(
         in_command_position,
         current_command.as_deref(),
     );
-    if candidates.len() >= 1 {
+    if !candidates.is_empty() {
         return ExpandResult {
             output: ExpandOutput::Candidates {
                 candidates: candidates

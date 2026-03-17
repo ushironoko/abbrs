@@ -226,6 +226,10 @@ enum Commands {
         config: Option<PathBuf>,
     },
 
+    /// Print the init script hash (internal use)
+    #[command(hide = true, name = "_init-hash")]
+    InitHash,
+
     /// Manage expansion history
     History {
         #[command(subcommand)]
@@ -372,6 +376,10 @@ fn main() -> Result<()> {
         Commands::Export { config: cfg } => cmd_export(cfg),
         Commands::ListKeywords { config: cfg } => cmd_list_keywords(cfg),
         Commands::ServeEnabled { config: cfg } => cmd_serve_enabled(cfg),
+        Commands::InitHash => {
+            println!("{}", env!("ABBRS_INIT_SCRIPT_HASH"));
+            Ok(())
+        }
         Commands::History { action } => cmd_history(action),
         Commands::Serve { socket, cache, config } => match socket {
             Some(sock_path) => serve::run_socket(sock_path, cache, config),
@@ -554,6 +562,7 @@ fn cmd_check(cfg: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cmd_add(
     keyword: Option<String>,
     expansion: Option<String>,
@@ -825,7 +834,9 @@ fn cmd_init_zsh() -> Result<()> {
         .unwrap_or_else(|_| std::path::PathBuf::from("abbrs"))
         .to_string_lossy()
         .into_owned();
-    let script = include_str!("../shells/zsh/abbrs.zsh").replace("__ABBRS_BIN__", &bin_path);
+    let script = include_str!("../shells/zsh/abbrs.zsh")
+        .replace("__ABBRS_BIN__", &bin_path)
+        .replace("__ABBRS_INIT_HASH__", env!("ABBRS_INIT_SCRIPT_HASH"));
     print!("{}", script);
     Ok(())
 }
@@ -923,7 +934,7 @@ fn cmd_history(action: HistoryAction) -> Result<()> {
                 return Ok(());
             }
 
-            println!("{:<20} {:<15} {}", "TIMESTAMP", "KEYWORD", "EXPANSION");
+            println!("{:<20} {:<15} EXPANSION", "TIMESTAMP", "KEYWORD");
             println!("{}", "-".repeat(60));
 
             for entry in &entries {
