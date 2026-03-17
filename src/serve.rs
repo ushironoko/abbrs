@@ -259,7 +259,8 @@ fn handle_history<W: Write>(state: &mut ServeState, limit: usize, writer: &mut W
         .collect();
 
     let output = ExpandOutput::Candidates { candidates };
-    write_response(writer, &output.to_string())
+    let page_size = state.compiled.as_ref().map_or(0, |c| c.settings.page_size);
+    write_response(writer, &output::format_expand_output(&output, page_size))
 }
 
 fn handle_placeholder<W: Write>(lbuffer: &str, rbuffer: &str, writer: &mut W) -> std::io::Result<()> {

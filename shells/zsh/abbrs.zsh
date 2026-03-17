@@ -6,7 +6,7 @@
 
 typeset -g _ABBRS_BIN="__ABBRS_BIN__"
 # Fallback: if placeholder was not replaced (e.g. sourced directly), find abbrs in PATH
-if [[ $_ABBRS_BIN == "__ABBRS_BIN__" ]]; then
+if [[ ! -x "$_ABBRS_BIN" ]]; then
   _ABBRS_BIN="${commands[abbrs]:-abbrs}"
 fi
 
