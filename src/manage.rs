@@ -184,10 +184,8 @@ pub fn query(
             if abbr.global {
                 return Ok(true);
             }
-        } else {
-            if abbr.command.is_none() && !abbr.global && abbr.context.is_none() {
-                return Ok(true);
-            }
+        } else if abbr.command.is_none() && !abbr.global && abbr.context.is_none() {
+            return Ok(true);
         }
     }
 

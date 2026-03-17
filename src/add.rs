@@ -297,9 +297,7 @@ fn prompt_select(label: &str, options: &[&str]) -> Result<String> {
             }
             match key_event.code {
                 KeyCode::Up | KeyCode::Char('k') => {
-                    if selected > 0 {
-                        selected -= 1;
-                    }
+                    selected = selected.saturating_sub(1);
                     clear_select_lines(options.len());
                     print_select_options(options, selected);
                 }

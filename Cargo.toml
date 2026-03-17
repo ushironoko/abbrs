@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["zsh", "abbreviation", "shell", "cli"]
 categories = ["command-line-utilities"]
 rust-version = "1.80"
-include = ["src/", "shells/", "README.md", "LICENSE"]
+include = ["src/", "shells/", "build.rs", "README.md", "LICENSE"]
 
 [[bin]]
 name = "abbrs"

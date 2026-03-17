@@ -145,7 +145,7 @@ pub fn load(path: &Path, limit: usize) -> Result<Vec<HistoryEntry>> {
     let reader = BufReader::new(file);
     let mut entries: Vec<HistoryEntry> = reader
         .lines()
-        .filter_map(|line| line.ok())
+        .map_while(Result::ok)
         .filter_map(|line| parse_line(&line))
         .collect();
 
@@ -180,7 +180,7 @@ pub fn compact(path: &Path, max_entries: usize) -> Result<()> {
     let reader = BufReader::new(file);
     let entries: Vec<String> = reader
         .lines()
-        .filter_map(|line| line.ok())
+        .map_while(Result::ok)
         .collect();
 
     if entries.len() <= max_entries {
