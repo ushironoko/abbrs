@@ -1,6 +1,6 @@
 [package]
 name = "abbrs"
-version = "0.2.6"
+version = "0.2.5"
 edition = "2021"
 authors = ["ushironoko"]
 description = "Fast and safe abbreviation expansion for zsh"
