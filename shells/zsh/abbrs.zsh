@@ -41,6 +41,7 @@ typeset -g  _ABBRS_CYCLE_LPREFIX=""
 typeset -g  _ABBRS_CYCLE_RBUFFER=""
 typeset -g  _ABBRS_CYCLE_ORIG_TOKEN=""
 typeset -g  _ABBRS_PAGE_SIZE=0
+typeset -g  _ABBRS_JUST_ACCEPTED=0
 typeset -g  _ABBRS_CYCLE_PAGE=1
 
 _abbrs_start_serve() {
@@ -441,7 +442,15 @@ _abbrs_expand_with_fallback() {
 # Expand abbreviation on Space key
 abbrs-expand-space() {
   if (( _ABBRS_CYCLING )); then
+    # Accept current candidate and insert space without re-expanding
     _abbrs_clear_candidates
+    _ABBRS_JUST_ACCEPTED=1
+    zle self-insert
+    return
+  fi
+  if (( _ABBRS_JUST_ACCEPTED )); then
+    zle self-insert
+    return
   fi
   _abbrs_expand_with_fallback _abbrs_handle_expand_response
 }
@@ -562,6 +571,10 @@ _abbrs_check_cycling() {
         _abbrs_clear_candidates 0
         ;;
     esac
+  fi
+  # Clear post-accept suppression on any non-space keypress
+  if (( _ABBRS_JUST_ACCEPTED )) && [[ "$LASTWIDGET" != abbrs-expand-space ]]; then
+    _ABBRS_JUST_ACCEPTED=0
   fi
 }
 zle -N _abbrs_check_cycling
