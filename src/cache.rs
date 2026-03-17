@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 /// Cache format version
-const CACHE_VERSION: u32 = 4;
+const CACHE_VERSION: u32 = 5;
 
 /// Cached settings (stored in cache for expand-time access)
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
