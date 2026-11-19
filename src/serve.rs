@@ -121,9 +121,12 @@ impl ServeState {
 
         match cache::read(&self.cache_path) {
             Ok(c) => {
-                self.config_mtime = std::fs::metadata(&self.config_path)
+                let config_mtime = std::fs::metadata(&self.config_path)
                     .and_then(|m| m.modified())
                     .ok();
+                // A stale cache must not be marked fresh, or the mtime fast path never reports stale_cache
+                self.config_mtime = config_mtime
+                    .filter(|_| cache::is_fresh(&c, &self.config_path).unwrap_or(false));
                 self.cache_mtime = std::fs::metadata(&self.cache_path)
                     .and_then(|m| m.modified())
                     .ok();
@@ -1320,5 +1323,82 @@ mod tests {
         // Second call without any changes should also return true without reloading
         assert!(state.check_and_reload_if_needed());
         assert_eq!(state.compiled.as_ref().unwrap().settings.page_size, 0);
+    }
+
+    fn expand_request(state: &mut ServeState, lbuffer: &str) -> String {
+        let request = Request::Expand {
+            lbuffer: lbuffer.to_string(),
+            rbuffer: String::new(),
+        };
+        let mut buf = Vec::new();
+        process_request(state, &request, &mut buf).unwrap();
+        response_body(&buf)
+    }
+
+    fn append_abbr_to_config(dir: &tempfile::TempDir, keyword: &str, expansion: &str) {
+        let config_path = dir.path().join("abbrs.toml");
+        let mut toml = std::fs::read_to_string(&config_path).unwrap();
+        toml.push_str(&format!("\n[[abbr]]\nkeyword = \"{}\"\nexpansion = \"{}\"\n", keyword, expansion));
+        std::fs::write(&config_path, toml).unwrap();
+    }
+
+    fn compile_config(dir: &tempfile::TempDir, abbrs: &[Abbreviation]) {
+        cache::write(
+            &dir.path().join("abbrs.cache"),
+            &crate::matcher::build(abbrs),
+            &CachedSettings::default(),
+            &dir.path().join("abbrs.toml"),
+        )
+        .unwrap();
+    }
+
+    fn added_abbr() -> Abbreviation {
+        Abbreviation {
+            keyword: "gal".to_string(),
+            expansion: "gcloud auth login".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_startup_with_stale_cache_reports_stale_cache() {
+        let abbrs = default_abbrs();
+        let (_old_state, dir) = create_test_state(&abbrs, CachedSettings::default());
+        append_abbr_to_config(&dir, "gal", "gcloud auth login");
+
+        let mut state = ServeState::new(dir.path().join("abbrs.cache"), dir.path().join("abbrs.toml"));
+        state.load_cache();
+
+        assert_eq!(expand_request(&mut state, "gal"), "stale_cache");
+        assert_eq!(expand_request(&mut state, "gal"), "stale_cache");
+    }
+
+    #[test]
+    fn test_startup_with_stale_cache_recovers_after_compile() {
+        let abbrs = default_abbrs();
+        let (_old_state, dir) = create_test_state(&abbrs, CachedSettings::default());
+        append_abbr_to_config(&dir, "gal", "gcloud auth login");
+
+        let mut state = ServeState::new(dir.path().join("abbrs.cache"), dir.path().join("abbrs.toml"));
+        state.load_cache();
+        assert_eq!(expand_request(&mut state, "gal"), "stale_cache");
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        compile_config(&dir, &[abbrs, vec![added_abbr()]].concat());
+
+        let body = expand_request(&mut state, "gal");
+        assert!(body.starts_with("success\ngcloud auth login"), "expected success, got: {}", body);
+    }
+
+    #[test]
+    fn test_reload_with_stale_cache_reports_stale_cache() {
+        let abbrs = default_abbrs();
+        let (mut state, dir) = create_test_state(&abbrs, CachedSettings::default());
+        append_abbr_to_config(&dir, "gal", "gcloud auth login");
+
+        let mut buf = Vec::new();
+        process_request(&mut state, &Request::Reload, &mut buf).unwrap();
+
+        assert_eq!(expand_request(&mut state, "gal"), "stale_cache");
     }
 }
